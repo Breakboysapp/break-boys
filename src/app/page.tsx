@@ -63,6 +63,21 @@ export default async function HomePage({
     include: { _count: { select: { cards: true } } },
   });
 
+  // Featured products — hero "Beat The Break" carousel. Hand-picked by name
+  // so this stays editorially curated rather than purely algorithmic; rotate
+  // these manually as new flagship releases land.
+  const FEATURED_NAMES = [
+    "2025 Topps Chrome Football",
+    "2025-26 Topps Cosmic Chrome Basketball",
+    "2025 Topps Definitive Collection Baseball",
+  ];
+  const featuredById = new Map(
+    all.filter((p) => FEATURED_NAMES.includes(p.name)).map((p) => [p.name, p]),
+  );
+  const featured = FEATURED_NAMES.map((n) => featuredById.get(n)).filter(
+    (p): p is NonNullable<typeof p> => Boolean(p),
+  );
+
   // Mixers — multi-product break sessions. Show them above products since
   // they're typically the active thing a breaker is running.
   const mixers = await prisma.mixer.findMany({
@@ -104,14 +119,20 @@ export default async function HomePage({
   ].filter(Boolean) as string[];
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="space-y-10">
+      {/* HERO — Beat The Break + featured new releases */}
+      <Hero featured={featured} />
+
+      <div
+        id="full-catalog"
+        className="flex flex-wrap items-end justify-between gap-4 scroll-mt-20"
+      >
         <div>
           <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
             Break Products
           </div>
           <h1 className="mt-1 text-3xl font-extrabold tracking-tight-3 sm:text-4xl">
-            Your Catalog
+            Full Catalog
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             {filtered.length === all.length
@@ -278,5 +299,149 @@ export default async function HomePage({
         </ul>
       )}
     </div>
+  );
+}
+
+type HeroProduct = {
+  id: string;
+  name: string;
+  sport: string;
+  manufacturer: string | null;
+  releaseDate: Date | null;
+  _count: { cards: number };
+};
+
+/**
+ * Home hero — "Beat The Break" tagline plus three featured new releases.
+ * Background uses a card-fan SVG over a black gradient to evoke the hobby
+ * without needing real product imagery.
+ */
+function Hero({ featured }: { featured: HeroProduct[] }) {
+  return (
+    <section className="relative overflow-hidden rounded-3xl border border-black/10 bg-ink text-white">
+      {/* Decorative card-fan illustration in the background */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.18]"
+      >
+        <svg
+          viewBox="0 0 1200 600"
+          xmlns="http://www.w3.org/2000/svg"
+          preserveAspectRatio="xMidYMid slice"
+          className="h-full w-full"
+        >
+          <defs>
+            <linearGradient id="card-fade" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#d40028" />
+              <stop offset="100%" stopColor="#0a0a0a" />
+            </linearGradient>
+            <linearGradient id="card-fade-2" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0.4" />
+            </linearGradient>
+          </defs>
+          {/* Fanned card silhouettes — sized + rotated to suggest a spread of cards */}
+          <g transform="translate(820 90)">
+            <rect
+              x="0" y="0" width="200" height="280" rx="14"
+              fill="url(#card-fade-2)" transform="rotate(-22)"
+            />
+            <rect
+              x="40" y="-10" width="200" height="280" rx="14"
+              fill="url(#card-fade)" transform="rotate(-8)"
+            />
+            <rect
+              x="100" y="-20" width="200" height="280" rx="14"
+              fill="#ffffff" opacity="0.85" transform="rotate(6)"
+            />
+            <rect
+              x="160" y="-15" width="200" height="280" rx="14"
+              fill="url(#card-fade)" transform="rotate(20)"
+            />
+          </g>
+          {/* Diagonal stripes adding texture on the left */}
+          <g opacity="0.18">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <rect
+                key={i}
+                x={-200 + i * 90}
+                y={-50}
+                width="40"
+                height="800"
+                fill="#d40028"
+                transform="rotate(-22)"
+              />
+            ))}
+          </g>
+        </svg>
+      </div>
+
+      <div className="relative grid gap-8 px-6 py-10 sm:px-10 sm:py-14 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:gap-12">
+        {/* Left: tagline + CTAs */}
+        <div className="space-y-5">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold uppercase tracking-tight-2 text-accent backdrop-blur">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+            Featured · New Releases
+          </div>
+          <h1 className="text-5xl font-black leading-[0.95] tracking-tight-3 sm:text-6xl lg:text-7xl">
+            Beat
+            <br />
+            <span className="text-accent">The Break.</span>
+          </h1>
+          <p className="max-w-md text-sm text-white/70 sm:text-base">
+            Track every card in the break before you buy your slot. Score
+            cards, player sheets, and live market values across {""}
+            {/* keep this number stable per render — pulled from the catalog */}
+            every release.
+          </p>
+          <div className="flex flex-wrap gap-3 pt-1">
+            <Link
+              href="#full-catalog"
+              className="rounded-md bg-white px-5 py-3 text-xs font-bold uppercase tracking-tight-2 text-ink hover:opacity-90 sm:text-sm"
+            >
+              Browse Catalog →
+            </Link>
+            <Link
+              href="/mixers/new"
+              className="rounded-md border border-white/30 bg-white/5 px-5 py-3 text-xs font-bold uppercase tracking-tight-2 text-white backdrop-blur hover:bg-white/10 sm:text-sm"
+            >
+              Build a Mixer
+            </Link>
+          </div>
+        </div>
+
+        {/* Right: featured product cards */}
+        {featured.length > 0 && (
+          <ul className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+            {featured.map((p, i) => (
+              <li key={p.id}>
+                <Link
+                  href={`/products/${p.id}`}
+                  className="group relative block h-full overflow-hidden rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur transition hover:-translate-y-0.5 hover:border-white/40 hover:bg-white/10"
+                >
+                  <div className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+                    #{i + 1} New Drop
+                  </div>
+                  <div className="mt-2 text-sm font-extrabold leading-tight tracking-tight-3">
+                    {p.name}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-tight-2 text-white/50">
+                    <span>
+                      {[p.manufacturer, p.sport].filter(Boolean).join(" · ")}
+                    </span>
+                    <span>
+                      {p._count.cards} {p._count.cards === 1 ? "card" : "cards"}
+                    </span>
+                  </div>
+                  <div className="mt-3 text-[10px] font-bold uppercase tracking-tight-2 text-white/80 group-hover:text-accent">
+                    Open the Score Card →
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
