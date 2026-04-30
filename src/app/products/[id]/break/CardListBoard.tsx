@@ -124,14 +124,21 @@ function PlayerSheet({ team, cards }: { team: string; cards: CardRow[] }) {
                   return (
                     <td
                       key={b.label}
-                      className={`bg-white px-3 py-2 text-xs ${
+                      className={`max-w-[180px] bg-white px-3 py-2 align-top ${
                         nums.length === 0 ? "text-slate-300" : "text-slate-700"
                       }`}
                     >
                       {nums.length === 0 ? (
-                        "—"
+                        <span className="text-xs">—</span>
                       ) : (
-                        <span className="font-mono">{nums.join(", ")}</span>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="shrink-0 text-[11px] font-bold tabular-nums text-ink">
+                            {nums.length}
+                          </span>
+                          <span className="break-all font-mono text-[10px] leading-tight text-slate-500">
+                            {nums.join(", ")}
+                          </span>
+                        </div>
                       )}
                     </td>
                   );

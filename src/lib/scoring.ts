@@ -95,30 +95,53 @@ const VARIATION_FALLBACKS: Array<{ match: RegExp; label: string; weight: number 
 ];
 
 /**
- * Classify a card. Priority:
- *   1. Numeric card number → Base
- *   2. Known cardNumber prefix → fixed weight from PREFIX_WEIGHTS
- *   3. Known variation (xlsx sheet name) → fallback weight from
- *      VARIATION_FALLBACKS (autos, memorabilia, etc.)
- *   4. Default → "Insert" weight 4
+ * Classify a card. Returns `{ label, weight }`:
+ *   - **label** is the bucket name shown on column headers (score card,
+ *     player sheet). Prefers the specific variation/section name from the
+ *     Beckett xlsx ("Cosmic Chrome Autographs", "Damascus", "Talent
+ *     Tracker") so the UI shows real set names, not generic labels.
+ *   - **weight** is the points/card multiplier. Prefers the hand-tuned
+ *     PREFIX_WEIGHTS value (so an Ivory Auto stays at 15 even if its
+ *     variation tag is "Ivory Autographs"), then falls back to the
+ *     category-level VARIATION_FALLBACKS, then to the default insert.
  *
- * Variation is optional — older callsites can still pass just the
- * cardNumber for backward compat.
+ * Numeric card numbers always bucket as "Base" with weight 1 — variation
+ * is ignored there.
  */
 export function classifyCard(
   cardNumber: string,
   variation?: string | null,
 ): { label: string; weight: number } {
   if (NUMERIC.test(cardNumber)) return { label: "Base", weight: BASE_WEIGHT };
+
+  // Strip the "· RC" suffix Beckett appends so RC and non-RC of the same
+  // subset bucket together ("Talent Tracker · RC" → "Talent Tracker").
+  const baseVariation = variation
+    ? variation.replace(/\s*[·•]\s*RC$/i, "").trim() || null
+    : null;
+
+  // Weight resolution: prefix match wins, then variation category, then default.
+  let weight = DEFAULT_INSERT_WEIGHT;
+  let labelFromPrefix: string | null = null;
   for (const p of PREFIX_WEIGHTS) {
-    if (p.match.test(cardNumber)) return { label: p.label, weight: p.weight };
-  }
-  if (variation) {
-    for (const p of VARIATION_FALLBACKS) {
-      if (p.match.test(variation)) return { label: p.label, weight: p.weight };
+    if (p.match.test(cardNumber)) {
+      weight = p.weight;
+      labelFromPrefix = p.label;
+      break;
     }
   }
-  return { label: "Insert", weight: DEFAULT_INSERT_WEIGHT };
+  if (labelFromPrefix === null && baseVariation) {
+    for (const p of VARIATION_FALLBACKS) {
+      if (p.match.test(baseVariation)) {
+        weight = p.weight;
+        break;
+      }
+    }
+  }
+
+  // Label resolution: variation (most specific) → prefix label → "Insert".
+  const label = baseVariation ?? labelFromPrefix ?? "Insert";
+  return { label, weight };
 }
 
 export type AlgorithmBucket = {

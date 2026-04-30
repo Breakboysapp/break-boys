@@ -67,6 +67,44 @@ function asCardRow(row: unknown[]): {
   return { cardNumber, playerName, team, rcFlag };
 }
 
+/**
+ * Detect column-header rows like `["Card #", "Player", "Type", "Notes"]` so
+ * we don't accidentally treat them as section names. These appear right
+ * before each subset's card list inside Inserts/Autographs sheets.
+ */
+const COLUMN_HEADER_LABELS = new Set([
+  "card #",
+  "card",
+  "card no",
+  "card no.",
+  "card number",
+  "#",
+  "player",
+  "players",
+  "team",
+  "team(s)",
+  "type",
+  "set",
+  "notes",
+  "rc?",
+  "parallel",
+]);
+
+function isColumnHeaderRow(arr: unknown[]): boolean {
+  // If at least 2 of the first 4 cells match column-header labels, it's a header.
+  let hits = 0;
+  for (let i = 0; i < 4; i++) {
+    const v = arr[i];
+    if (typeof v === "string" && COLUMN_HEADER_LABELS.has(v.trim().toLowerCase())) {
+      hits++;
+    }
+  }
+  return hits >= 2;
+}
+
+/** "50 cards" / "100 cards." — count rows that come after a section header. */
+const COUNT_ROW_RE = /^\d+\s+cards?\.?$/i;
+
 export function parseBeckettXlsx(buffer: ArrayBuffer): ChecklistRow[] {
   const wb = XLSX.read(buffer, { type: "array" });
   const out: ChecklistRow[] = [];
@@ -79,20 +117,49 @@ export function parseBeckettXlsx(buffer: ArrayBuffer): ChecklistRow[] {
       blankrows: false,
       defval: "",
     });
-    const variation = sheetVariation(sheetName);
+    // Track the most recent in-sheet section header (e.g. "Damascus",
+    // "Talent Tracker", "Cosmic Mercury"). Falls back to the sheet name —
+    // mapped through sheetVariation so "Base"/"Base Set" stay as null
+    // (base cards don't get a variation tag).
+    let currentSection: string | null = sheetVariation(sheetName);
 
     for (const row of rows) {
-      const card = asCardRow(row);
-      if (!card) continue;
-      const variationParts: string[] = [];
-      if (variation) variationParts.push(variation);
-      if (card.rcFlag) variationParts.push("RC");
-      out.push({
-        cardNumber: card.cardNumber,
-        playerName: card.playerName,
-        team: card.team,
-        variation: variationParts.length > 0 ? variationParts.join(" · ") : undefined,
-      });
+      const arr = row as unknown[];
+
+      // Card row? Use the current section as the variation.
+      const card = asCardRow(arr);
+      if (card) {
+        const variationParts: string[] = [];
+        if (currentSection) variationParts.push(currentSection);
+        if (card.rcFlag) variationParts.push("RC");
+        out.push({
+          cardNumber: card.cardNumber,
+          playerName: card.playerName,
+          team: card.team,
+          variation:
+            variationParts.length > 0 ? variationParts.join(" · ") : undefined,
+        });
+        continue;
+      }
+
+      // Not a card row. Could be a section header, count row, or column
+      // header. We update currentSection from genuine section headers only.
+      const colA = arr[0];
+      if (typeof colA !== "string") continue;
+      const text = colA.trim();
+      if (!text) continue;
+      if (COUNT_ROW_RE.test(text)) continue;
+      if (isColumnHeaderRow(arr)) continue;
+
+      // Section header looks like a single text cell (col B/C empty).
+      const colB = arr[1];
+      const colC = arr[2];
+      const bEmpty = typeof colB !== "string" || !colB.trim();
+      const cEmpty = typeof colC !== "string" || !colC.trim();
+      if (bEmpty && cEmpty) {
+        // Strip leading bullets/icons that Beckett uses for section markers.
+        currentSection = text.replace(/^[\s▶•·\-]+/u, "").trim() || null;
+      }
     }
   }
   return out;
