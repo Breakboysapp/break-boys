@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import SearchFilters from "@/components/SearchFilters";
 import SortSelector, { type SortOption } from "@/components/SortSelector";
-import { extractYear, uniqueSorted } from "@/lib/search";
+import { extractYears, inferReleaseTime, uniqueSorted } from "@/lib/search";
 
 export const dynamic = "force-dynamic";
 
@@ -25,11 +25,7 @@ function applySort<
   const out = [...rows];
   switch (sort) {
     case "release-asc":
-      return out.sort((a, b) => {
-        const aT = a.releaseDate?.getTime() ?? Infinity;
-        const bT = b.releaseDate?.getTime() ?? Infinity;
-        return aT - bT;
-      });
+      return out.sort((a, b) => inferReleaseTime(a) - inferReleaseTime(b));
     case "name-asc":
       return out.sort((a, b) => a.name.localeCompare(b.name));
     case "cards-desc":
@@ -38,11 +34,7 @@ function applySort<
       return out.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     case "release-desc":
     default:
-      return out.sort((a, b) => {
-        const aT = a.releaseDate?.getTime() ?? -Infinity;
-        const bT = b.releaseDate?.getTime() ?? -Infinity;
-        return bT - aT;
-      });
+      return out.sort((a, b) => inferReleaseTime(b) - inferReleaseTime(a));
   }
 }
 
@@ -83,14 +75,16 @@ export default async function HomePage({
   });
 
   // Build chip values from the unfiltered set so options don't disappear when
-  // a filter is active.
-  const years = uniqueSorted(all.map((p) => extractYear(p.name)));
+  // a filter is active. Year extraction expands season ranges ("2025-26" →
+  // both "2025" and "2026") so a product like "2025-26 Topps Basketball"
+  // appears under either year filter.
+  const years = uniqueSorted(all.flatMap((p) => extractYears(p.name)));
   const manufacturers = uniqueSorted(all.map((p) => p.manufacturer));
   const sports = uniqueSorted(all.map((p) => p.sport));
 
   const filtered = applySort(
     all.filter((p) => {
-      if (year && extractYear(p.name) !== year) return false;
+      if (year && !extractYears(p.name).includes(year)) return false;
       if (mfr && p.manufacturer !== mfr) return false;
       if (sport && p.sport !== sport) return false;
       if (q) {

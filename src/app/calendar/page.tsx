@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { listSources } from "@/lib/sources";
 import SearchFilters from "@/components/SearchFilters";
-import { extractYear, uniqueSorted } from "@/lib/search";
+import { extractYears, uniqueSorted } from "@/lib/search";
 import SyncButton from "./SyncButton";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +30,12 @@ export default async function CalendarPage({
     include: { _count: { select: { cards: true } } },
   });
 
-  const years = uniqueSorted(all.map((p) => extractYear(p.name)));
+  const years = uniqueSorted(all.flatMap((p) => extractYears(p.name)));
   const manufacturers = uniqueSorted(all.map((p) => p.manufacturer));
   const sports = uniqueSorted(all.map((p) => p.sport));
 
   const products = all.filter((p) => {
-    if (year && extractYear(p.name) !== year) return false;
+    if (year && !extractYears(p.name).includes(year)) return false;
     if (mfr && p.manufacturer !== mfr) return false;
     if (sport && p.sport !== sport) return false;
     if (q) {
