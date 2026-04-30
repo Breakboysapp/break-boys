@@ -115,7 +115,39 @@ export default function TeamPriceEditor({
 
   return (
     <div className="space-y-3">
-      {/* Single header row: box price + market refresh */}
+      {/* Start a break — quick access at the very top so the primary action
+          is always one tap away. */}
+      <Link
+        href={`/products/${productId}/break`}
+        className="flex items-center justify-between gap-3 rounded-2xl border border-ink bg-ink px-4 py-3 text-white transition hover:opacity-90 sm:px-5 sm:py-4"
+      >
+        <div className="min-w-0">
+          <div className="text-[10px] font-bold uppercase tracking-tight-2 text-white/60 sm:text-[11px]">
+            Ready to track?
+          </div>
+          <div className="text-base font-extrabold tracking-tight-3 sm:text-lg">
+            START A BREAK
+          </div>
+        </div>
+        <span
+          aria-hidden
+          className="shrink-0 rounded-md bg-accent px-3 py-2 text-[11px] font-bold uppercase tracking-tight-2"
+        >
+          Begin →
+        </span>
+      </Link>
+
+      {/* BREAK BOYS SCORE CARD — primary visualization, leads the section */}
+      <TeamBreakdownSheet
+        buckets={algorithm}
+        teamRows={teamBreakdownRows}
+        playerRows={playerBreakdownRows}
+        cards={cards}
+      />
+
+      {/* Pricing controls — box price + eBay market refresh. Sits below
+          the score card; secondary in importance once the catalog is
+          loaded. */}
       <div className="flex flex-wrap items-end justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3">
         <label className="block">
           <span className="text-[11px] uppercase tracking-wide text-slate-500">
@@ -171,7 +203,9 @@ export default function TeamPriceEditor({
         <p className="text-xs text-slate-500">{statusMessage}</p>
       )}
 
-      {/* Weight program — how the algorithm scores each card type */}
+      {/* Weight program — how the algorithm scores each card type. Sits at
+          the bottom as reference material for anyone curious about the math
+          behind the score card numbers above. */}
       {algorithm.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -180,7 +214,7 @@ export default function TeamPriceEditor({
                 Weight Program
               </div>
               <div className="text-base font-bold tracking-tight-2">
-                How we score this product
+                How we score this break
               </div>
             </div>
             <div className="text-[11px] text-slate-500">
@@ -223,36 +257,6 @@ export default function TeamPriceEditor({
           </div>
         </div>
       )}
-
-      {/* Start a break — quick access right above the score card so it's
-          available while browsing the team breakdown */}
-      <Link
-        href={`/products/${productId}/break`}
-        className="flex items-center justify-between gap-3 rounded-2xl border border-ink bg-ink px-4 py-3 text-white transition hover:opacity-90 sm:px-5 sm:py-4"
-      >
-        <div className="min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-tight-2 text-white/60 sm:text-[11px]">
-            Ready to track?
-          </div>
-          <div className="text-base font-extrabold tracking-tight-3 sm:text-lg">
-            START A BREAK
-          </div>
-        </div>
-        <span
-          aria-hidden
-          className="shrink-0 rounded-md bg-accent px-3 py-2 text-[11px] font-bold uppercase tracking-tight-2"
-        >
-          Begin →
-        </span>
-      </Link>
-
-      {/* BREAK BOYS SCORE CARD — full breakdown, with team/player toggle */}
-      <TeamBreakdownSheet
-        buckets={algorithm}
-        teamRows={teamBreakdownRows}
-        playerRows={playerBreakdownRows}
-        cards={cards}
-      />
     </div>
   );
 }
