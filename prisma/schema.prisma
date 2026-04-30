@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// We use Postgres in both dev and prod. Local dev can point at a free
+// Neon project (https://neon.tech) — takes ~30 seconds to create and the
+// connection string drops straight into .env. Prisma can't take provider
+// from env() so we commit the literal here; if you want to fall back to
+// SQLite locally, swap the provider value and DATABASE_URL together.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id                  String      @id @default(cuid())
+  name                String
+  sport               String
+  manufacturer        String?
+  releaseDate         DateTime?
+  releaseStatus       String      @default("announced") // announced | released | delayed | cancelled
+  source              String      @default("manual")    // manual | api:<provider>
+  externalId          String?
+  // Total per-buyer slot price for one full break of this product (cents).
+  // The only variable in retail pricing — everything else is algorithm.
+  boxPriceCents       Int?
+  // When per-card market values were last refreshed product-wide.
+  lastMarketRefreshAt DateTime?
+  cards               Card[]
+  teamPrices          TeamPrice[]
+  breaks              UserBreak[]
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @default(now()) @updatedAt
+
+  @@unique([source, externalId], name: "source_externalId")
+}
+
+model Card {
+  id               String     @id @default(cuid())
+  productId        String
+  team             String
+  playerName       String
+  cardNumber       String
+  variation        String?
+  // Per-card market signal — populated by the eBay fetcher.
+  // Median asking price across recent active listings, in cents. Used in the
+  // composite scoring blend in src/lib/scoring.ts.
+  marketValueCents Int?
+  marketSampleSize Int?
+  marketObservedAt DateTime?
+  product          Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userCards        UserCard[]
+
+  @@index([productId, team])
+}
+
+model TeamPrice {
+  id             String    @id @default(cuid())
+  productId      String
+  team           String
+  // Breaker's contract cost for this team slot (cents). The one human input
+  // on this row — everything else is algorithmic.
+  wholesaleCents Int?
+  // Legacy team-level eBay aggregate from Phase-2 v1 (per-team listing index).
+  // Kept for backwards compat; the live signal now lives on Card.marketValueCents
+  // and is rolled up at query time. Safe to remove later.
+  valueIndexCents Int?
+  lastIndexedAt   DateTime?
+  indexSampleSize Int?
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, team])
+}
+
+model UserBreak {
+  id         String   @id @default(cuid())
+  userId     String   @default("local")
+  productId  String
+  teamsOwned String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@index([userId, productId])
+}
+
+model UserCard {
+  id     String @id @default(cuid())
+  userId String @default("local")
+  cardId String
+  status String
+  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cardId])
+}

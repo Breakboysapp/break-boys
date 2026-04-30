@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  font-feature-settings: "ss01", "cv11";
+}
+
+body {
+  background: theme('colors.bone');
+  color: theme('colors.ink');
+  font-family: theme('fontFamily.display');
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tighter, more confident headings — Fanatics-style. */
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
