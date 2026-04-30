@@ -29,6 +29,7 @@ model Product {
   cards               Card[]
   teamPrices          TeamPrice[]
   breaks              UserBreak[]
+  mixers              MixerProduct[]
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @default(now()) @updatedAt
 
@@ -81,6 +82,52 @@ model UserBreak {
   createdAt  DateTime @default(now())
 
   @@index([userId, productId])
+}
+
+// A multi-product break session — what breakers run as "mixers"
+// (e.g. "KKSPORTSCARDS Topps Chrome Black / Bowman Draft / Definitive").
+//
+// Pricing: one boxPriceCents covers the whole mixer (per-buyer slot price).
+// Per-team retail = (team's combined Break Score across all products
+// in the mixer / total combined Break Score) × boxPriceCents.
+//
+// breakerHandle is optional metadata so mixers can be attributed to a
+// specific breaker (KKSPORTSCARDS) for sharing.
+model Mixer {
+  id            String          @id @default(cuid())
+  userId        String          @default("local")
+  name          String
+  breakerHandle String?
+  boxPriceCents Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @default(now()) @updatedAt
+  products      MixerProduct[]
+  picks         MixerPick[]
+
+  @@index([userId])
+}
+
+model MixerProduct {
+  mixerId   String
+  productId String
+  mixer     Mixer   @relation(fields: [mixerId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([mixerId, productId])
+  @@index([productId])
+}
+
+// The buyer's selected teams (canonical names) for a mixer break. Mirrors
+// UserBreak.teamsOwned but scoped to a mixer instead of a single product.
+model MixerPick {
+  id         String   @id @default(cuid())
+  mixerId    String
+  userId     String   @default("local")
+  teamsOwned String
+  mixer      Mixer    @relation(fields: [mixerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([mixerId, userId])
 }
 
 model UserCard {
