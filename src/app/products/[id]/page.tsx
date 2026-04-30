@@ -96,14 +96,6 @@ export default async function ProductPage({
         <ComingSoon productId={product.id} />
       ) : (
         <>
-          <section className="space-y-3">
-            <SectionHeader label="Checklist" />
-            <ChecklistUpload
-              productId={product.id}
-              hasExistingCards={product._count.cards > 0}
-            />
-          </section>
-
           {hasTeams && (
             <section className="space-y-3">
               <SectionHeader label="Pricing" />
@@ -122,6 +114,21 @@ export default async function ProductPage({
               />
             </section>
           )}
+
+          {/* Checklist import lives at the bottom — once the product is
+              loaded, this is rarely interacted with, so it shouldn't dominate
+              the top of the page. Collapsed by default. */}
+          <details className="rounded-2xl border border-slate-200 bg-white">
+            <summary className="cursor-pointer px-5 py-3 text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-ink">
+              Checklist · {product._count.cards} cards · re-import or replace
+            </summary>
+            <div className="border-t border-slate-200 p-5">
+              <ChecklistUpload
+                productId={product.id}
+                hasExistingCards={product._count.cards > 0}
+              />
+            </div>
+          </details>
         </>
       )}
     </div>
