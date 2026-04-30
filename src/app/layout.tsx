@@ -62,6 +62,12 @@ export default function RootLayout({
                 Products
               </Link>
               <Link
+                href="/mixers"
+                className="rounded-md px-3 py-2 hover:bg-white/10"
+              >
+                Mixers
+              </Link>
+              <Link
                 href="/calendar"
                 className="rounded-md px-3 py-2 hover:bg-white/10"
               >

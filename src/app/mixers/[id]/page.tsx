@@ -6,6 +6,7 @@ import {
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
 import TeamBreakdownSheet from "@/app/products/[id]/TeamBreakdownSheet";
+import DeleteMixerButton from "./DeleteMixerButton";
 
 export const dynamic = "force-dynamic";
 
@@ -63,12 +64,15 @@ export default async function MixerPage({
   return (
     <div className="space-y-10">
       {/* Hero */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+      <div className="relative rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+        <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+          <DeleteMixerButton mixerId={mixer.id} />
+        </div>
         <Link
-          href="/"
+          href="/mixers"
           className="text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-ink"
         >
-          ← All products
+          ← All mixers
         </Link>
         <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold uppercase tracking-tight-2 text-accent">
           <span>Mixer</span>

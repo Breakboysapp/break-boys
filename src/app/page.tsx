@@ -78,17 +78,6 @@ export default async function HomePage({
     (p): p is NonNullable<typeof p> => Boolean(p),
   );
 
-  // Mixers — multi-product break sessions. Show them above products since
-  // they're typically the active thing a breaker is running.
-  const mixers = await prisma.mixer.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      products: {
-        include: { product: { select: { name: true, _count: { select: { cards: true } } } } },
-      },
-    },
-  });
-
   // Build chip values from the unfiltered set so options don't disappear when
   // a filter is active. Year extraction expands season ranges ("2025-26" →
   // both "2025" and "2026") so a product like "2025-26 Topps Basketball"
@@ -162,68 +151,6 @@ export default async function HomePage({
           </Link>
         </div>
       </div>
-
-      {/* Mixers (multi-product break sessions) live above the product list
-          since they're typically the live thing a breaker is running. */}
-      {mixers.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
-              Mixers
-            </h2>
-            <span className="text-xs text-slate-500">
-              {mixers.length} {mixers.length === 1 ? "mixer" : "mixers"}
-            </span>
-          </div>
-          <ul className="grid gap-3 sm:grid-cols-2">
-            {mixers.map((m) => {
-              const totalCards = m.products.reduce(
-                (s, p) => s + p.product._count.cards,
-                0,
-              );
-              return (
-                <li key={m.id}>
-                  <Link
-                    href={`/mixers/${m.id}`}
-                    className="group block h-full rounded-xl border border-slate-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-ink hover:shadow-lg"
-                  >
-                    <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-tight-2 text-accent">
-                      <span>Mixer</span>
-                      {m.breakerHandle && (
-                        <>
-                          <span aria-hidden className="text-slate-400">·</span>
-                          <span>@{m.breakerHandle}</span>
-                        </>
-                      )}
-                    </div>
-                    <div className="text-base font-bold leading-tight tracking-tight-2">
-                      {m.name}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {m.products.map((mp) => (
-                        <span
-                          key={mp.productId}
-                          className="rounded bg-bone px-2 py-0.5 text-[10px] font-semibold text-slate-700"
-                        >
-                          {mp.product.name}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-                      <span>
-                        {m.products.length} products · {totalCards} cards
-                      </span>
-                      <span className="font-semibold text-ink group-hover:text-accent">
-                        Open →
-                      </span>
-                    </div>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
 
       <SearchFilters
         basePath="/"
