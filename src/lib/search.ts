@@ -41,8 +41,14 @@ export function extractYears(name: string): string[] {
 /**
  * Best-effort release time for sort ordering. Uses the explicit
  * `releaseDate` when set; otherwise infers from the latest year mentioned
- * in the name (mid-year as a coarse default — sorts year-by-year sensibly
- * without claiming false precision).
+ * in the name and falls back to **Jan 1** of that year.
+ *
+ * Why Jan 1: it's conservative. Within the same year, explicit dates
+ * (e.g. "2026 Topps Chrome Black" → 2026-04-29) always sort ABOVE inferred
+ * dates of the same year (e.g. "2025-26 Bowman Basketball" → 2026-01-01).
+ * That way the user's "newest release first" sort surfaces the actually-
+ * released products before products we're guessing at, while still
+ * placing 2026-class products above 2025-class products at the year level.
  */
 export function inferReleaseTime(p: {
   name: string;
@@ -51,9 +57,9 @@ export function inferReleaseTime(p: {
   if (p.releaseDate) return p.releaseDate.getTime();
   const years = extractYears(p.name);
   if (years.length === 0) return 0;
-  // Use the LATEST year (so "2025-26" sorts as 2026)
+  // Latest year mentioned (so "2025-26" sorts as 2026, "2024-25" as 2025).
   const latest = years.sort()[years.length - 1];
-  return new Date(`${latest}-07-01T00:00:00Z`).getTime();
+  return new Date(`${latest}-01-01T00:00:00Z`).getTime();
 }
 
 export function uniqueSorted(values: Array<string | null | undefined>): string[] {
