@@ -19,12 +19,40 @@ export default function RootLayout({
           <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
             <Link
               href="/"
-              className="flex items-baseline gap-2 text-base font-extrabold tracking-tight-3"
+              className="flex items-center gap-2.5 transition hover:opacity-90"
+              aria-label="Break Boys home"
             >
-              <span className="rounded-sm bg-accent px-1.5 py-0.5 text-xs uppercase tracking-tight-2 text-white">
-                Break
+              {/* Brand mark: rounded black square with white "BB" + red accent stripe */}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 64 64"
+                className="h-9 w-9 shrink-0 rounded-md ring-1 ring-white/10"
+                aria-hidden
+              >
+                <rect width="64" height="64" rx="10" fill="#0a0a0a" />
+                <rect x="0" y="50" width="64" height="6" fill="#d40028" />
+                <text
+                  x="32"
+                  y="42"
+                  fontFamily="Inter, ui-sans-serif, system-ui, sans-serif"
+                  fontSize="34"
+                  fontWeight="900"
+                  letterSpacing="-2"
+                  textAnchor="middle"
+                  fill="#ffffff"
+                >
+                  BB
+                </text>
+              </svg>
+              {/* Wordmark — eyebrow above, big mark below */}
+              <span className="flex flex-col leading-none">
+                <span className="text-[9px] font-bold uppercase tracking-tight-2 text-accent">
+                  Break
+                </span>
+                <span className="text-base font-extrabold uppercase tracking-tight-3 sm:text-lg">
+                  Boys
+                </span>
               </span>
-              <span className="text-base uppercase sm:text-lg">Boys</span>
             </Link>
             <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-tight-2">
               <Link
