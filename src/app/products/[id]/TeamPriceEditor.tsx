@@ -24,6 +24,14 @@ type BreakdownRow = {
   totalScore: number;
 };
 
+type CardLite = {
+  team: string;
+  playerName: string;
+  cardNumber: string;
+  variation: string | null;
+  marketValueCents: number | null;
+};
+
 export default function TeamPriceEditor({
   productId,
   initialBoxPriceCents,
@@ -35,6 +43,7 @@ export default function TeamPriceEditor({
   algorithm,
   teamBreakdownRows,
   playerBreakdownRows,
+  cards,
 }: {
   productId: string;
   initialBoxPriceCents: number | null;
@@ -47,6 +56,7 @@ export default function TeamPriceEditor({
   algorithm: AlgorithmBucket[];
   teamBreakdownRows: BreakdownRow[];
   playerBreakdownRows: BreakdownRow[];
+  cards: CardLite[];
 }) {
   const router = useRouter();
   const [boxPrice, setBoxPrice] = useState(centsToDisplay(initialBoxPriceCents));
@@ -241,6 +251,7 @@ export default function TeamPriceEditor({
         buckets={algorithm}
         teamRows={teamBreakdownRows}
         playerRows={playerBreakdownRows}
+        cards={cards}
       />
     </div>
   );

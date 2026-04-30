@@ -111,6 +111,13 @@ export default async function ProductPage({
                 algorithm={algorithm}
                 teamBreakdownRows={teamBreakdown.rows}
                 playerBreakdownRows={playerBreakdown.rows}
+                cards={product.cards.map((c) => ({
+                  team: c.team,
+                  playerName: c.playerName,
+                  cardNumber: c.cardNumber,
+                  variation: c.variation,
+                  marketValueCents: c.marketValueCents,
+                }))}
               />
             </section>
           )}
