@@ -6,10 +6,6 @@ import {
   computeBreakdown,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
-import {
-  activeMarketProvider,
-  marketProviderLabel,
-} from "@/lib/sources/pricing/provider";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
 
@@ -110,9 +106,6 @@ export default async function ProductPage({
                 cardsWithMarket={cardsWithMarket}
                 cardCount={product._count.cards}
                 lastMarketRefreshAt={product.lastMarketRefreshAt?.toISOString() ?? null}
-                marketProviderLabel={
-                  marketProviderLabel(activeMarketProvider()) || null
-                }
                 algorithm={algorithm}
                 teamBreakdownRows={teamBreakdown.rows}
                 playerBreakdownRows={playerBreakdown.rows}
