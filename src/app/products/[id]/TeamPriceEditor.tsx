@@ -39,7 +39,7 @@ export default function TeamPriceEditor({
   cardsWithMarket,
   cardCount,
   lastMarketRefreshAt,
-  ebayConfigured,
+  marketProviderLabel,
   algorithm,
   teamBreakdownRows,
   playerBreakdownRows,
@@ -52,7 +52,8 @@ export default function TeamPriceEditor({
   cardsWithMarket: number;
   cardCount: number;
   lastMarketRefreshAt: string | null;
-  ebayConfigured: boolean;
+  /** "PriceCharting" | "eBay" | null — null disables the refresh button. */
+  marketProviderLabel: string | null;
   algorithm: AlgorithmBucket[];
   teamBreakdownRows: BreakdownRow[];
   playerBreakdownRows: BreakdownRow[];
@@ -85,8 +86,10 @@ export default function TeamPriceEditor({
 
   async function refreshMarket() {
     setRefreshing(true);
+    // PriceCharting is ~150ms/card, eBay is ~220ms/card. Use the slower
+    // estimate so the ETA is conservative whichever provider is active.
     setStatusMessage(
-      `Querying eBay for ~${cardCount} cards. ETA ${Math.ceil(cardCount * 0.22)}s.`,
+      `Querying ${marketProviderLabel ?? "market"} for ~${cardCount} cards. ETA ${Math.ceil(cardCount * 0.22)}s.`,
     );
     try {
       const res = await fetch(
@@ -182,18 +185,20 @@ export default function TeamPriceEditor({
               <>No market signal yet</>
             )}
           </div>
-          {ebayConfigured ? (
+          {marketProviderLabel ? (
             <button
               type="button"
               onClick={refreshMarket}
               disabled={refreshing || cardCount === 0}
               className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:border-slate-400 disabled:opacity-50"
             >
-              {refreshing ? "Refreshing…" : "Refresh from eBay"}
+              {refreshing
+                ? "Refreshing…"
+                : `Refresh from ${marketProviderLabel}`}
             </button>
           ) : (
             <span className="text-[11px] text-slate-400">
-              eBay not configured (.env)
+              No market provider configured
             </span>
           )}
         </div>
