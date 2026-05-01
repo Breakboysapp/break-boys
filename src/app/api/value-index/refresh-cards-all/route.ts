@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ebayConfigured, fetchCardValues } from "@/lib/sources/pricing/ebayCards";
+import {
+  activeMarketProvider,
+  fetchCardValues,
+  marketProviderLabel,
+  MARKET_PROVIDER_NOT_CONFIGURED_MSG,
+} from "@/lib/sources/pricing/provider";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -103,17 +108,17 @@ export async function POST(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  if (!ebayConfigured()) {
+  const provider = activeMarketProvider();
+  if (!provider) {
     return NextResponse.json(
-      {
-        error:
-          "eBay credentials not configured — set EBAY_APP_ID and EBAY_CERT_ID env vars",
-      },
+      { error: MARKET_PROVIDER_NOT_CONFIGURED_MSG },
       { status: 503 },
     );
   }
   const summary = await refreshAll();
   return NextResponse.json({
+    provider,
+    providerLabel: marketProviderLabel(provider),
     productsProcessed: summary.length,
     refreshedAt: new Date().toISOString(),
     summary,

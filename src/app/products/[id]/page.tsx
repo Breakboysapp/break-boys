@@ -6,7 +6,10 @@ import {
   computeBreakdown,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
-import { ebayConfigured } from "@/lib/sources/pricing/ebay";
+import {
+  activeMarketProvider,
+  marketProviderLabel,
+} from "@/lib/sources/pricing/provider";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
 
@@ -107,7 +110,9 @@ export default async function ProductPage({
                 cardsWithMarket={cardsWithMarket}
                 cardCount={product._count.cards}
                 lastMarketRefreshAt={product.lastMarketRefreshAt?.toISOString() ?? null}
-                ebayConfigured={ebayConfigured()}
+                marketProviderLabel={
+                  marketProviderLabel(activeMarketProvider()) || null
+                }
                 algorithm={algorithm}
                 teamBreakdownRows={teamBreakdown.rows}
                 playerBreakdownRows={playerBreakdown.rows}
