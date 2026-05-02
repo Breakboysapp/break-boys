@@ -158,14 +158,58 @@ export type BreakdownRow = {
   byBucket: Record<string, number>; // bucket label → count of cards
   totalCards: number;
   totalScore: number;
-  /** Sum of marketValueCents across this subject's cards. Cards with
-   * null market value contribute 0 — they're not counted as zero-value,
-   * just unknown. Powers the "Sort by value" toggle on the score card. */
-  totalMarketCents: number;
-  /** How many of this subject's cards have a market value attached.
-   * Lets the UI distinguish "$0 (no data)" from "$0 (genuinely zero)". */
+  /** Sum of confirmed marketValueCents across this subject's cards. Real
+   * data only — does not include weight-class estimates. */
+  confirmedMarketCents: number;
+  /** Estimated potential value: sum of (real marketValueCents OR weight-
+   * class estimate) per card. This is what the user actually wants to
+   * see on the score card — "what could I pull?" — given that
+   * PriceCharting genuinely doesn't index most premium card variants
+   * (autos, dual autos, 1/1s) for sports products. Real data takes
+   * precedence; estimates fill the gaps. */
+  totalPotentialCents: number;
+  /** How many of this subject's cards have a real market value attached.
+   * Lets the UI distinguish "$0 (no data)" from "$0 (genuinely zero)" and
+   * show coverage hints like "12/16 confirmed". */
   cardsWithMarket: number;
+  /** Highest single-card potential (real or estimated) — the "best
+   * possible pull" for this subject. Useful for users thinking about
+   * upside on a per-pull basis. */
+  maxPotentialCents: number;
 };
+
+/**
+ * Per-card potential when we have no PriceCharting data.
+ *
+ * Why we need this: PriceCharting's sports-card coverage is thin on
+ * non-base variants. Probing 2024 Topps Chrome shows zero indexed
+ * Trout autos / parallels — PC just returns Funko Pops and Disney
+ * cards on those queries. Reflecting that gap as $0 would tell users
+ * a Trout dual auto is worthless, which is wildly wrong.
+ *
+ * These numbers are industry-typical raw-card averages calibrated for
+ * the modern Topps / Bowman / Panini products we carry. They under-call
+ * the absolute superstars (Trout, Judge, Ohtani get 2-5× these on autos)
+ * and over-call commons. As a "what could I pull?" indicator across a
+ * full break, they're directionally honest.
+ *
+ * Numbers are deliberately round — adjust based on user feedback,
+ * don't pretend they're precise.
+ */
+const ESTIMATED_VALUE_CENTS_BY_WEIGHT: Record<number, number> = {
+  1: 400, // Base — $4
+  4: 2500, // Insert / numbered insert — $25
+  6: 5000, // Memorabilia / Paint It — $50
+  8: 8000, // Numbered parallel / Super Futures Auto — $80
+  10: 15000, // Auto — $150
+  12: 30000, // Dual Auto — $300
+  15: 40000, // 1/1 / Ivory Auto — $400
+};
+
+/** Estimate a card's value when we have no real market data. */
+export function estimatedCardValueCents(weight: number): number {
+  return ESTIMATED_VALUE_CENTS_BY_WEIGHT[weight] ?? Math.max(weight * 1000, 500);
+}
 
 /**
  * Per-subject × per-bucket cross-tab. Generalized over the grouping
@@ -205,17 +249,34 @@ export function computeBreakdown(
         byBucket: Object.fromEntries(bucketLabels.map((l) => [l, 0])),
         totalCards: 0,
         totalScore: 0,
-        totalMarketCents: 0,
+        confirmedMarketCents: 0,
+        totalPotentialCents: 0,
         cardsWithMarket: 0,
+        maxPotentialCents: 0,
       };
       rowMap.set(subject, row);
     }
     row.byBucket[cls.label] = (row.byBucket[cls.label] ?? 0) + 1;
     row.totalCards++;
     row.totalScore += bucketWeightByLabel.get(cls.label) ?? cls.weight;
-    if (c.marketValueCents != null && c.marketValueCents > 0) {
-      row.totalMarketCents += c.marketValueCents;
+
+    // Real-data path. Confirmed total tracks honest PC matches only.
+    const realCents =
+      c.marketValueCents != null && c.marketValueCents > 0
+        ? c.marketValueCents
+        : null;
+    if (realCents != null) {
+      row.confirmedMarketCents += realCents;
       row.cardsWithMarket++;
+    }
+
+    // Potential path: real if we have it, else weight-class estimate.
+    // This is what the score card surfaces as "Value" — the upside the
+    // buyer is considering when picking a team in the break.
+    const potentialCents = realCents ?? estimatedCardValueCents(cls.weight);
+    row.totalPotentialCents += potentialCents;
+    if (potentialCents > row.maxPotentialCents) {
+      row.maxPotentialCents = potentialCents;
     }
   }
 
