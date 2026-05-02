@@ -13,8 +13,19 @@
 import {
   ebayConfigured,
   fetchCardValues as fetchFromEbay,
-  type CardLookup,
 } from "./ebayCards";
+
+/**
+ * Unified card-lookup shape — the variation field is a PriceCharting
+ * hint (used for query disambiguation + base-card-fallback rejection).
+ * eBay's matcher ignores it.
+ */
+export type CardLookup = {
+  cardId: string;
+  cardNumber: string;
+  playerName: string;
+  variation?: string | null;
+};
 import {
   pricechartingConfigured,
   fetchCardValues as fetchFromPriceCharting,

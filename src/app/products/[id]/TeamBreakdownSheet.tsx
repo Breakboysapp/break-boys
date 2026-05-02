@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { classifyCard } from "@/lib/scoring";
+import { formatUsd } from "@/lib/money";
 
 type AlgorithmBucket = {
   label: string;
@@ -15,7 +16,13 @@ type Row = {
   byBucket: Record<string, number>;
   totalCards: number;
   totalScore: number;
+  confirmedMarketCents: number;
+  totalPotentialCents: number;
+  cardsWithMarket: number;
+  maxPotentialCents: number;
 };
+
+type SortBy = "score" | "value";
 
 type CardLite = {
   team: string;
@@ -39,9 +46,33 @@ export default function TeamBreakdownSheet({
   cards: CardLite[];
 }) {
   const [view, setView] = useState<View>("team");
+  const [sortBy, setSortBy] = useState<SortBy>("score");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const rows = view === "team" ? teamRows : playerRows;
+  const rawRows = view === "team" ? teamRows : playerRows;
+  // Re-sort rows in place each render. Score/Value selection drives the
+  // ordering; the column data itself is the same.
+  // For value sort, rows with no confirmed market data fall to the bottom
+  // ordered by score (so the table doesn't just dump them randomly).
+  const rows = useMemo(() => {
+    const copy = [...rawRows];
+    if (sortBy === "value") {
+      copy.sort((a, b) => {
+        if (b.confirmedMarketCents !== a.confirmedMarketCents) {
+          return b.confirmedMarketCents - a.confirmedMarketCents;
+        }
+        return b.totalScore - a.totalScore;
+      });
+    } else {
+      copy.sort((a, b) => b.totalScore - a.totalScore);
+    }
+    return copy;
+  }, [rawRows, sortBy]);
+  // Hide the Value column entirely when no row has any confirmed market
+  // data. We deliberately do NOT use the synthetic class-based estimate
+  // here as the displayed number — it's too noisy across player tiers
+  // (an Ohtani auto = $2500, a journeyman auto = $50, both class=10).
+  const anyValueData = rawRows.some((r) => r.cardsWithMarket > 0);
   const subjectLabel = view === "team" ? "Team" : "Player";
   const subjectMinWidth = view === "team" ? "min-w-[180px]" : "min-w-[220px]";
   // Only the team view has expandable rows — clicking a player doesn't
@@ -71,7 +102,12 @@ export default function TeamBreakdownSheet({
 
   if (buckets.length === 0) return null;
   const grandTotalScore = rows.reduce((s, r) => s + r.totalScore, 0);
-  const totalCols = buckets.length + 3; // # + Subject + ...buckets + Score
+  const grandTotalConfirmed = rows.reduce(
+    (s, r) => s + r.confirmedMarketCents,
+    0,
+  );
+  // # + Subject + ...buckets + Score + (optional Value)
+  const totalCols = buckets.length + 3 + (anyValueData ? 1 : 0);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -86,6 +122,9 @@ export default function TeamBreakdownSheet({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           <ViewToggle current={view} onChange={setView} />
+          {anyValueData && (
+            <SortToggle current={sortBy} onChange={setSortBy} />
+          )}
           <div className="text-[10px] text-slate-500 sm:text-[11px]">
             {rows.length} {view === "team" ? "teams" : "players"} ·{" "}
             {buckets.length} types
@@ -120,9 +159,22 @@ export default function TeamBreakdownSheet({
                   </div>
                 </th>
               ))}
-              <th className="bg-accent px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
+              <th
+                className={`px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                  sortBy === "score" ? "bg-accent" : "bg-ink"
+                }`}
+              >
                 Break Score
               </th>
+              {anyValueData && (
+                <th
+                  className={`px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                    sortBy === "value" ? "bg-accent" : "bg-ink"
+                  }`}
+                >
+                  Value
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -182,9 +234,38 @@ export default function TeamBreakdownSheet({
                         </td>
                       );
                     })}
-                    <td className="bg-accent/5 px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink">
+                    <td
+                      className={`px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
+                        sortBy === "score" ? "bg-accent/10" : "bg-white"
+                      }`}
+                    >
                       {r.totalScore}
                     </td>
+                    {anyValueData && (
+                      <td
+                        className={`px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
+                          sortBy === "value" ? "bg-accent/10" : "bg-white"
+                        }`}
+                        title={
+                          r.cardsWithMarket > 0
+                            ? `${r.cardsWithMarket} of ${r.totalCards} cards have confirmed market data`
+                            : "no confirmed market data — premium card pricing not yet covered"
+                        }
+                      >
+                        {r.cardsWithMarket > 0 ? (
+                          <>
+                            <div className="leading-tight">
+                              {formatUsd(r.confirmedMarketCents)}
+                            </div>
+                            <div className="text-[10px] font-medium leading-tight text-slate-400">
+                              {r.cardsWithMarket}/{r.totalCards}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                   {isOpen && (
                     <tr className="border-b border-slate-200 bg-slate-50">
@@ -217,9 +298,23 @@ export default function TeamBreakdownSheet({
                   </div>
                 </td>
               ))}
-              <td className="bg-accent px-3 py-2 text-right tabular-nums text-white">
+              <td
+                className={`px-3 py-2 text-right tabular-nums text-white ${
+                  sortBy === "score" ? "bg-accent" : "bg-ink"
+                }`}
+              >
                 {grandTotalScore}
               </td>
+              {anyValueData && (
+                <td
+                  className={`px-3 py-2 text-right tabular-nums text-white ${
+                    sortBy === "value" ? "bg-accent" : "bg-ink"
+                  }`}
+                  title="Total of confirmed PriceCharting market values across the catalog"
+                >
+                  {formatUsd(grandTotalConfirmed)}
+                </td>
+              )}
             </tr>
           </tfoot>
         </table>
@@ -350,6 +445,31 @@ function ViewToggle({
       </ToggleButton>
       <ToggleButton active={current === "player"} onClick={() => onChange("player")}>
         Player
+      </ToggleButton>
+    </div>
+  );
+}
+
+function SortToggle({
+  current,
+  onChange,
+}: {
+  current: SortBy;
+  onChange: (v: SortBy) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md bg-white p-0.5 ring-1 ring-slate-200 text-[11px] font-bold uppercase tracking-tight-2">
+      <ToggleButton
+        active={current === "score"}
+        onClick={() => onChange("score")}
+      >
+        Score
+      </ToggleButton>
+      <ToggleButton
+        active={current === "value"}
+        onClick={() => onChange("value")}
+      >
+        Value
       </ToggleButton>
     </div>
   );
