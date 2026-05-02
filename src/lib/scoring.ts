@@ -158,6 +158,13 @@ export type BreakdownRow = {
   byBucket: Record<string, number>; // bucket label → count of cards
   totalCards: number;
   totalScore: number;
+  /** Sum of marketValueCents across this subject's cards. Cards with
+   * null market value contribute 0 — they're not counted as zero-value,
+   * just unknown. Powers the "Sort by value" toggle on the score card. */
+  totalMarketCents: number;
+  /** How many of this subject's cards have a market value attached.
+   * Lets the UI distinguish "$0 (no data)" from "$0 (genuinely zero)". */
+  cardsWithMarket: number;
 };
 
 /**
@@ -175,6 +182,7 @@ export function computeBreakdown(
     team: string;
     playerName: string;
     variation?: string | null;
+    marketValueCents?: number | null;
   }[],
   groupBy: "team" | "playerName" = "team",
 ): {
@@ -197,12 +205,18 @@ export function computeBreakdown(
         byBucket: Object.fromEntries(bucketLabels.map((l) => [l, 0])),
         totalCards: 0,
         totalScore: 0,
+        totalMarketCents: 0,
+        cardsWithMarket: 0,
       };
       rowMap.set(subject, row);
     }
     row.byBucket[cls.label] = (row.byBucket[cls.label] ?? 0) + 1;
     row.totalCards++;
     row.totalScore += bucketWeightByLabel.get(cls.label) ?? cls.weight;
+    if (c.marketValueCents != null && c.marketValueCents > 0) {
+      row.totalMarketCents += c.marketValueCents;
+      row.cardsWithMarket++;
+    }
   }
 
   const rows = [...rowMap.values()].sort((a, b) => b.totalScore - a.totalScore);

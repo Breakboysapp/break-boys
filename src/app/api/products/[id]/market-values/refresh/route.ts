@@ -38,7 +38,12 @@ export async function POST(
     where: { id },
     include: {
       cards: {
-        select: { id: true, cardNumber: true, playerName: true },
+        select: {
+          id: true,
+          cardNumber: true,
+          playerName: true,
+          variation: true,
+        },
       },
     },
   });
@@ -60,6 +65,7 @@ export async function POST(
         cardId: c.id,
         cardNumber: c.cardNumber,
         playerName: c.playerName,
+        variation: c.variation,
       })),
     });
   } catch (err) {

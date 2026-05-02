@@ -76,7 +76,14 @@ async function refreshOne(prisma: PrismaClient, productId: string) {
   const product = await prisma.product.findUnique({
     where: { id: productId },
     include: {
-      cards: { select: { id: true, cardNumber: true, playerName: true } },
+      cards: {
+        select: {
+          id: true,
+          cardNumber: true,
+          playerName: true,
+          variation: true,
+        },
+      },
     },
   });
   if (!product) throw new Error("product not found");
@@ -92,6 +99,7 @@ async function refreshOne(prisma: PrismaClient, productId: string) {
       cardId: c.id,
       cardNumber: c.cardNumber,
       playerName: c.playerName,
+      variation: c.variation,
     })),
   });
   const apiMs = Date.now() - start;

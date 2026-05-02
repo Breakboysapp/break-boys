@@ -31,7 +31,14 @@ async function refreshAll() {
       OR: [{ releaseDate: { gte: cutoff } }, { releaseDate: null }],
     },
     include: {
-      cards: { select: { id: true, cardNumber: true, playerName: true } },
+      cards: {
+        select: {
+          id: true,
+          cardNumber: true,
+          playerName: true,
+          variation: true,
+        },
+      },
     },
   });
 
@@ -61,6 +68,7 @@ async function refreshAll() {
           cardId: c.id,
           cardNumber: c.cardNumber,
           playerName: c.playerName,
+          variation: c.variation,
         })),
       });
       const now = new Date();
