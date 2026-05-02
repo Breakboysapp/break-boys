@@ -1,10 +1,49 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import HeaderNav from "@/components/HeaderNav";
 import "./globals.css";
 
+// Absolute base for og:image / twitter:image URLs. NEXT_PUBLIC_SITE_URL
+// is settable from Vercel env if we ever change domains; defaults to
+// production for the most common case.
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://breakboys.app";
+
 export const metadata: Metadata = {
-  title: "Break Boys",
-  description: "Track owned and wanted cards across break products.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Break Boys — Sports Card Break Tracker",
+    template: "%s · Break Boys",
+  },
+  description:
+    "Per-team checklists, content scores, and market values for modern Topps, Bowman, and Panini sports breaks. Plan picks, track ownership, beat the break.",
+  applicationName: "Break Boys",
+  keywords: [
+    "sports card breaks",
+    "break tracker",
+    "topps chrome",
+    "bowman",
+    "panini",
+    "card checklist",
+    "team break",
+    "card values",
+  ],
+  openGraph: {
+    type: "website",
+    siteName: "Break Boys",
+    url: SITE_URL,
+    title: "Break Boys — Sports Card Break Tracker",
+    description:
+      "Per-team checklists, content scores, and market values for modern sports card breaks.",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Break Boys — Sports Card Break Tracker",
+    description:
+      "Per-team checklists, content scores, and market values for modern sports card breaks.",
+  },
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({
@@ -54,26 +93,7 @@ export default function RootLayout({
                 </span>
               </span>
             </Link>
-            <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-tight-2">
-              <Link
-                href="/"
-                className="rounded-md px-3 py-2 hover:bg-white/10"
-              >
-                Products
-              </Link>
-              <Link
-                href="/mixers"
-                className="rounded-md px-3 py-2 hover:bg-white/10"
-              >
-                Mixers
-              </Link>
-              <Link
-                href="/calendar"
-                className="rounded-md px-3 py-2 hover:bg-white/10"
-              >
-                Calendar
-              </Link>
-            </div>
+            <HeaderNav />
           </nav>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">{children}</main>
