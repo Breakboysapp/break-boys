@@ -69,6 +69,7 @@ export default function SortSelector({
               <Link
                 key={o.value}
                 href={buildHref(o.value)}
+                scroll={false}
                 onClick={() => setOpen(false)}
                 className={`block px-3 py-2 text-sm ${
                   isOn ? "bg-ink text-white" : "text-slate-700 hover:bg-bone"
