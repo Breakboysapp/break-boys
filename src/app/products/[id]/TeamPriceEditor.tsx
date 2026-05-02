@@ -39,7 +39,6 @@ export default function TeamPriceEditor({
   cardsWithMarket,
   cardCount,
   lastMarketRefreshAt,
-  marketProviderLabel,
   algorithm,
   teamBreakdownRows,
   playerBreakdownRows,
@@ -52,8 +51,6 @@ export default function TeamPriceEditor({
   cardsWithMarket: number;
   cardCount: number;
   lastMarketRefreshAt: string | null;
-  /** "PriceCharting" | "eBay" | null — null disables the refresh button. */
-  marketProviderLabel: string | null;
   algorithm: AlgorithmBucket[];
   teamBreakdownRows: BreakdownRow[];
   playerBreakdownRows: BreakdownRow[];
@@ -62,54 +59,18 @@ export default function TeamPriceEditor({
   const router = useRouter();
   const [boxPrice, setBoxPrice] = useState(centsToDisplay(initialBoxPriceCents));
   const [savingBox, setSavingBox] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const showMarketBadge = cardsWithMarket > 0;
 
   async function saveBoxPrice() {
     setSavingBox(true);
-    setStatusMessage(null);
     const res = await fetch(`/api/products/${productId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ boxPriceCents: dollarsToCents(boxPrice) }),
     });
     setSavingBox(false);
-    if (res.ok) {
-      router.refresh();
-    } else {
-      const j = await res.json().catch(() => ({}));
-      setStatusMessage(j.error ?? "Save failed");
-    }
-  }
-
-  async function refreshMarket() {
-    setRefreshing(true);
-    // PriceCharting is ~150ms/card, eBay is ~220ms/card. Use the slower
-    // estimate so the ETA is conservative whichever provider is active.
-    setStatusMessage(
-      `Querying ${marketProviderLabel ?? "market"} for ~${cardCount} cards. ETA ${Math.ceil(cardCount * 0.22)}s.`,
-    );
-    try {
-      const res = await fetch(
-        `/api/products/${productId}/market-values/refresh`,
-        { method: "POST" },
-      );
-      const j = await res.json();
-      if (!res.ok) {
-        setStatusMessage(j.error ?? "Refresh failed");
-        return;
-      }
-      setStatusMessage(
-        `Refreshed ${j.cardsWithValue} cards (${j.totalSamples} listings sampled).`,
-      );
-      router.refresh();
-    } catch (e) {
-      setStatusMessage(e instanceof Error ? e.message : "Refresh failed");
-    } finally {
-      setRefreshing(false);
-    }
+    if (res.ok) router.refresh();
   }
 
   const lastRefresh = lastMarketRefreshAt
@@ -148,9 +109,11 @@ export default function TeamPriceEditor({
         cards={cards}
       />
 
-      {/* Pricing controls — box price + eBay market refresh. Sits below
-          the score card; secondary in importance once the catalog is
-          loaded. */}
+      {/* Pricing controls — box price + a passive market-freshness label.
+          Market values are refreshed in the background on a schedule
+          (PriceCharting cron), not on demand. Showing how stale the data
+          is — without making the user wait for a refresh — was the
+          intentional product call. */}
       <div className="flex flex-wrap items-end justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3">
         <label className="block">
           <span className="text-[11px] uppercase tracking-wide text-slate-500">
@@ -174,39 +137,25 @@ export default function TeamPriceEditor({
           </div>
         </label>
 
-        <div className="flex items-center gap-3 text-right">
-          <div className="text-[11px] text-slate-500">
-            {showMarketBadge ? (
-              <>
-                Market signal · {cardsWithMarket}/{cardCount} cards
-                {lastRefresh && <> · refreshed {lastRefresh}</>}
-              </>
-            ) : (
-              <>No market signal yet</>
-            )}
-          </div>
-          {marketProviderLabel ? (
-            <button
-              type="button"
-              onClick={refreshMarket}
-              disabled={refreshing || cardCount === 0}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:border-slate-400 disabled:opacity-50"
-            >
-              {refreshing
-                ? "Refreshing…"
-                : `Refresh from ${marketProviderLabel}`}
-            </button>
+        <div className="text-right text-[11px] text-slate-500">
+          {showMarketBadge ? (
+            <>
+              <div>
+                Market values · {cardsWithMarket}/{cardCount} cards
+              </div>
+              {lastRefresh && (
+                <div className="text-slate-400">
+                  Updated {lastRefresh} · refreshes weekly
+                </div>
+              )}
+            </>
           ) : (
-            <span className="text-[11px] text-slate-400">
-              No market provider configured
-            </span>
+            <div className="text-slate-400">
+              Market values populate within a week of release
+            </div>
           )}
         </div>
       </div>
-
-      {statusMessage && (
-        <p className="text-xs text-slate-500">{statusMessage}</p>
-      )}
 
       {/* Weight program — how the algorithm scores each card type. Sits at
           the bottom as reference material for anyone curious about the math

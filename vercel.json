@@ -4,14 +4,7 @@
     {
       "path": "/api/sync/cardboardconnection",
       "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/value-index/refresh-all",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/value-index/refresh-cards-all",
-      "schedule": "0 9 * * *"
     }
   ]
 }
+

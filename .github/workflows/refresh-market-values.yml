@@ -1,0 +1,62 @@
+# Weekly per-card market-value refresh.
+#
+# Runs the local script (scripts/refresh-market-values.ts) against the
+# production DB + PriceCharting once a week. GH Actions sidesteps
+# Vercel's 60s function cap (Hobby tier) — a full active-catalog refresh
+# takes ~30-60 minutes for ~30 active products and that's totally fine
+# here. GH Actions free tier gives 2,000 minutes/month for private repos.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   DATABASE_URL          Neon Postgres connection string (production)
+#   PRICECHARTING_TOKEN   PriceCharting Pro API token
+#
+# Manual run:
+#   GitHub UI → Actions tab → "Refresh market values" → Run workflow
+#   (defaults to --recent which is the last 90 days; override the input
+#   to "--all" for a full sweep)
+name: Refresh market values
+
+on:
+  schedule:
+    # Every Sunday at 09:00 UTC (Sunday morning EST). Cards typically
+    # settle on weekend trading so picking up Sunday-night values gives
+    # us the freshest snapshot for the week ahead.
+    - cron: "0 9 * * 0"
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Which products to refresh"
+        required: true
+        default: "--recent"
+        type: choice
+        options:
+          - "--recent"
+          - "--all"
+          - "--smallest"
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # GH Actions hard cap is 6 hours; leave plenty of headroom for the
+    # full catalog. A typical run is ~45 min.
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - name: Refresh market values
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PRICECHARTING_TOKEN: ${{ secrets.PRICECHARTING_TOKEN }}
+        run: |
+          SCOPE="${{ github.event.inputs.scope || '--recent' }}"
+          echo "Refreshing with scope: $SCOPE"
+          npx tsx scripts/refresh-market-values.ts "$SCOPE"
