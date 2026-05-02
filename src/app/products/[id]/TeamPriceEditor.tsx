@@ -22,6 +22,10 @@ type BreakdownRow = {
   byBucket: Record<string, number>;
   totalCards: number;
   totalScore: number;
+  confirmedMarketCents: number;
+  totalPotentialCents: number;
+  cardsWithMarket: number;
+  maxPotentialCents: number;
 };
 
 type CardLite = {

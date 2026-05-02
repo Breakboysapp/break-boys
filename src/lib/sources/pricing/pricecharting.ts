@@ -30,6 +30,11 @@ export type CardLookup = {
   cardId: string;
   cardNumber: string;
   playerName: string;
+  /** Optional. When present, hints the variation (e.g. "Dual Autographs
+   * Checklist", "Black - 1/1") for query + ranking. Without it we can
+   * still match base/numeric-only cards but lose the ability to reject
+   * a base-card fallback for an auto/parallel lookup. */
+  variation?: string | null;
 };
 
 export type CardMarketValue = {
@@ -63,13 +68,47 @@ export function pricechartingConfigured(): boolean {
 
 const NUMERIC = /^\d+$/;
 
+/**
+ * Words from the variation field that hurt the search rather than help —
+ * "Checklist" appears on basically every Beckett checklist row but never
+ * in PriceCharting's product names. Strip them before forming the query.
+ */
+const VARIATION_NOISE = new Set([
+  "checklist",
+  "set",
+  "card",
+  "cards",
+  "no",
+]);
+
+function isNonBase(card: CardLookup): boolean {
+  if (!NUMERIC.test(card.cardNumber)) return true; // letter-prefix → insert/auto
+  if (card.variation) {
+    // "Base Set" and "Base Set · RC" stay as base; everything else is non-base.
+    return !/^Base Set( ·.*)?$/i.test(card.variation.trim());
+  }
+  return false;
+}
+
+/** Trim variation tokens we'd want to feed PriceCharting's search box. */
+function variationKeywords(variation: string | null | undefined): string {
+  if (!variation) return "";
+  return variation
+    .replace(/[·•]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !VARIATION_NOISE.has(w.toLowerCase()))
+    .join(" ");
+}
+
 /** Build the search query for one card. */
 export function buildQuery(productName: string, card: CardLookup): string {
-  // For inserts/autos with letter prefixes, the prefix is distinctive.
-  // For numeric base cards, the prefix is just a number → too noisy on its own.
+  // Card-number prefixes for inserts/autos (e.g. "DA-TRG") are distinctive.
+  // For numeric base cards the prefix is just a number → too noisy alone.
   const includeCardNumber = !NUMERIC.test(card.cardNumber);
-  const parts = [productName, card.playerName];
+  const parts: string[] = [productName, card.playerName];
   if (includeCardNumber) parts.push(card.cardNumber);
+  const v = variationKeywords(card.variation);
+  if (v) parts.push(v);
   return parts.filter(Boolean).join(" ");
 }
 
@@ -100,23 +139,40 @@ async function searchOne(args: {
     return { cardId: args.card.cardId, medianCents: null, sampleSize: 0 };
   }
 
-  // Pick the product whose console-name best contains our productName.
-  // Fall back to the first hit if no clear winner.
+  // Rank candidates. The set-name match is a noisy signal on its own —
+  // PriceCharting's "console-name" is typically the year+brand. The
+  // discriminating signals are (a) does the matched product mention
+  // the player, (b) does it mention the specific card number/prefix,
+  // and (c) does it mention the variation (Auto / Refractor / parallel).
   const productLower = args.productName.toLowerCase();
+  const cardNumberLower = args.card.cardNumber.toLowerCase();
+  const playerLower = args.card.playerName.toLowerCase();
+  const variationKw = variationKeywords(args.card.variation).toLowerCase();
+  const nonBase = isNonBase(args.card);
+
   const ranked = products
     .map((p) => {
       const consoleName = (p["console-name"] ?? "").toLowerCase();
-      const productNameLower = (p["product-name"] ?? "").toLowerCase();
-      const playerLower = args.card.playerName.toLowerCase();
+      const pName = (p["product-name"] ?? "").toLowerCase();
       let score = 0;
-      // Strong signal: the console-name contains our product name
-      if (productLower && consoleName.includes(productLower.split(" ")[0])) score += 5;
-      // Each shared word boosts the score
+      // Console name contains a leading set word (year or brand)
+      if (productLower && consoleName.includes(productLower.split(" ")[0])) score += 3;
+      // Set-word overlap
       for (const word of productLower.split(" ")) {
         if (word.length > 2 && consoleName.includes(word)) score++;
       }
-      // Player name match in product-name
-      if (playerLower && productNameLower.includes(playerLower)) score += 3;
+      // Player name in product-name
+      if (playerLower && pName.includes(playerLower)) score += 3;
+      // Card-number prefix in product-name (e.g. "DA-TRG") — strong signal
+      if (!NUMERIC.test(args.card.cardNumber) && pName.includes(cardNumberLower)) {
+        score += 6;
+      }
+      // Variation keywords in product-name (e.g. "auto", "refractor")
+      if (variationKw) {
+        for (const w of variationKw.split(/\s+/)) {
+          if (w.length > 2 && pName.includes(w)) score += 2;
+        }
+      }
       return { p, score };
     })
     .sort((a, b) => b.score - a.score);
@@ -124,6 +180,30 @@ async function searchOne(args: {
   const best = ranked[0]?.p;
   if (!best) {
     return { cardId: args.card.cardId, medianCents: null, sampleSize: 0 };
+  }
+
+  // Reject suspicious matches: if this is a non-base card (auto / parallel
+  // / numbered insert) but the matched product-name shows none of the
+  // signals that would normally appear (the card number, the variation
+  // keyword, or any explicit "auto"/"parallel" hint), assume PriceCharting
+  // fell back to the base card and return null. Better to show no data
+  // than to show $3.43 next to a Trout dual auto.
+  if (nonBase) {
+    const bestName = (best["product-name"] ?? "").toLowerCase();
+    const cardNumberMatch =
+      !NUMERIC.test(args.card.cardNumber) && bestName.includes(cardNumberLower);
+    const variationMatch =
+      variationKw &&
+      variationKw
+        .split(/\s+/)
+        .some((w) => w.length > 2 && bestName.includes(w));
+    const explicitNonBaseHint =
+      /\b(auto|autograph|signature|refractor|parallel|patch|relic|memorabilia|prizm|sapphire|atomic)\b/.test(
+        bestName,
+      );
+    if (!cardNumberMatch && !variationMatch && !explicitNonBaseHint) {
+      return { cardId: args.card.cardId, medianCents: null, sampleSize: 0 };
+    }
   }
 
   // Prefer loose-price (raw card). PriceCharting returns prices in CENTS already.
