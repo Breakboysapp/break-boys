@@ -45,7 +45,9 @@ export default function SearchFilters({
       if (q.trim()) next.set(searchKey, q.trim());
       else next.delete(searchKey);
       const qs = next.toString();
-      router.replace(qs ? `${basePath}?${qs}` : basePath);
+      // scroll: false — filter changes update the in-place result list;
+      // jumping the user back to the top each keystroke is jarring.
+      router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
     }, 200);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
@@ -82,6 +84,7 @@ export default function SearchFilters({
         {activeCount > 0 && (
           <Link
             href={basePath}
+            scroll={false}
             className="rounded-md border border-slate-300 bg-white px-3 py-2 text-[11px] font-bold uppercase tracking-tight-2 text-slate-600 hover:border-ink"
           >
             Clear all
@@ -125,6 +128,7 @@ function ChipRow({
       </span>
       <Link
         href={buildHref(null)}
+        scroll={false}
         className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
           facet.selected === null
             ? "border-ink bg-ink text-white"
@@ -137,6 +141,7 @@ function ChipRow({
         <Link
           key={v}
           href={buildHref(v)}
+          scroll={false}
           className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
             facet.selected === v
               ? "border-ink bg-ink text-white"
