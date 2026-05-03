@@ -17,7 +17,13 @@
 const ALIASES: Record<string, string> = {
   // MLB — franchise relocations / renames
   "brooklyn dodgers": "Los Angeles Dodgers",
-  "new york giants": "San Francisco Giants",
+  // NOTE: deliberately NOT mapping "new york giants" → "San Francisco Giants".
+  // The 1880s–1957 New York Giants baseball franchise moved to SF, but the
+  // NFL New York Giants are a current, never-renamed team. Modern Beckett
+  // checklists use "San Francisco Giants" for the MLB team and "New York
+  // Giants" for the NFL team — there's no need for an alias here, and
+  // adding one mislabels every NFL Giants card as an MLB team. (This bug
+  // hit the catalog at ~2,461 NFL cards before being caught.)
   "boston braves": "Atlanta Braves",
   "milwaukee braves": "Atlanta Braves",
   "st. louis browns": "Baltimore Orioles",

@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { classifyCard } from "@/lib/scoring";
 import { formatUsd } from "@/lib/money";
+import { getTeamAbbreviation } from "@/lib/team-abbreviations";
 
 type AlgorithmBucket = {
   label: string;
@@ -74,7 +75,13 @@ export default function TeamBreakdownSheet({
   // (an Ohtani auto = $2500, a journeyman auto = $50, both class=10).
   const anyValueData = rawRows.some((r) => r.cardsWithMarket > 0);
   const subjectLabel = view === "team" ? "Team" : "Player";
-  const subjectMinWidth = view === "team" ? "min-w-[180px]" : "min-w-[220px]";
+  // Team names get abbreviated on mobile (NYY, LAD, etc.), so the column
+  // only needs ~64px on small screens. Player names don't have a clean
+  // abbreviation and stay verbose on both breakpoints.
+  const subjectMinWidth =
+    view === "team"
+      ? "min-w-[64px] sm:min-w-[180px]"
+      : "min-w-[180px] sm:min-w-[220px]";
   // Only the team view has expandable rows — clicking a player doesn't
   // give us anywhere meaningful to drill into.
   const expandable = view === "team";
@@ -202,6 +209,7 @@ export default function TeamBreakdownSheet({
                     </td>
                     <td
                       className={`sticky left-10 z-20 ${subjectMinWidth} bg-white px-3 py-2 font-semibold tracking-tight-2`}
+                      title={view === "team" ? r.name : undefined}
                     >
                       {expandable && (
                         <span
@@ -213,7 +221,7 @@ export default function TeamBreakdownSheet({
                           ▶
                         </span>
                       )}
-                      {r.name}
+                      {view === "team" ? <SubjectName name={r.name} /> : r.name}
                     </td>
                     {buckets.map((b) => {
                       const n = r.byBucket[b.label] ?? 0;
@@ -481,6 +489,24 @@ function SortToggle({
         Value
       </ToggleButton>
     </div>
+  );
+}
+
+/**
+ * Team-name display that swaps to a compact abbreviation on mobile so
+ * the Team column doesn't eat half the table. Falls back to the full
+ * name on either breakpoint when the team doesn't have a known
+ * abbreviation (rare — covers all 4 majors + WNBA), and the title
+ * attribute on the parent <td> exposes the long form on hover.
+ */
+function SubjectName({ name }: { name: string }) {
+  const abbr = getTeamAbbreviation(name);
+  if (!abbr) return <>{name}</>;
+  return (
+    <>
+      <span className="sm:hidden">{abbr}</span>
+      <span className="hidden sm:inline">{name}</span>
+    </>
   );
 }
 
