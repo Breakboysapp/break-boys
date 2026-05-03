@@ -38,6 +38,8 @@ function applySort<
   }
 }
 
+type Tab = "active" | "coming-soon";
+
 export default async function HomePage({
   searchParams,
 }: {
@@ -47,6 +49,7 @@ export default async function HomePage({
     mfr?: string;
     sport?: string;
     sort?: string;
+    tab?: Tab;
   }>;
 }) {
   const params = await searchParams;
@@ -55,6 +58,7 @@ export default async function HomePage({
   const mfr = params.mfr ?? null;
   const sport = params.sport ?? null;
   const sort = params.sort ?? "release-desc";
+  const tab: Tab = params.tab === "coming-soon" ? "coming-soon" : "active";
 
   // Pull all products — small set in MVP. Filter in memory so search can be
   // case-insensitive across SQLite/Postgres without provider-specific syntax.
@@ -62,6 +66,13 @@ export default async function HomePage({
     orderBy: [{ releaseDate: "desc" }, { createdAt: "desc" }],
     include: { _count: { select: { cards: true } } },
   });
+
+  // Tab split — Coming Soon = no checklist loaded yet (cards = 0). Active =
+  // everything else. Both buckets share filters (search, year, sport, mfr)
+  // and the same sort.
+  const activeProducts = all.filter((p) => p._count.cards > 0);
+  const comingSoonProducts = all.filter((p) => p._count.cards === 0);
+  const tabPool = tab === "coming-soon" ? comingSoonProducts : activeProducts;
 
   // Featured products — hero "Beat The Break" carousel. Hand-picked by name
   // so this stays editorially curated rather than purely algorithmic; rotate
@@ -78,16 +89,18 @@ export default async function HomePage({
     (p): p is NonNullable<typeof p> => Boolean(p),
   );
 
-  // Build chip values from the unfiltered set so options don't disappear when
-  // a filter is active. Year extraction expands season ranges ("2025-26" →
-  // both "2025" and "2026") so a product like "2025-26 Topps Basketball"
-  // appears under either year filter.
-  const years = uniqueSorted(all.flatMap((p) => extractYears(p.name)));
-  const manufacturers = uniqueSorted(all.map((p) => p.manufacturer));
-  const sports = uniqueSorted(all.map((p) => p.sport));
+  // Build chip values from the current tab's pool so options reflect the
+  // tab the user is on (e.g. only sports represented among Coming Soon
+  // products show up in the Sport filter when Coming Soon is active).
+  // Year extraction expands season ranges ("2025-26" → both "2025" and
+  // "2026") so a product like "2025-26 Topps Basketball" appears under
+  // either year filter.
+  const years = uniqueSorted(tabPool.flatMap((p) => extractYears(p.name)));
+  const manufacturers = uniqueSorted(tabPool.map((p) => p.manufacturer));
+  const sports = uniqueSorted(tabPool.map((p) => p.sport));
 
   const filtered = applySort(
-    all.filter((p) => {
+    tabPool.filter((p) => {
       if (year && !extractYears(p.name).includes(year)) return false;
       if (mfr && p.manufacturer !== mfr) return false;
       if (sport && p.sport !== sport) return false;
@@ -124,9 +137,11 @@ export default async function HomePage({
             Full Catalog
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            {filtered.length === all.length
-              ? `${all.length} ${all.length === 1 ? "product" : "products"} indexed`
-              : `${filtered.length} of ${all.length} products${
+            {filtered.length === tabPool.length
+              ? `${tabPool.length} ${tabPool.length === 1 ? "product" : "products"} ${
+                  tab === "coming-soon" ? "awaiting checklist" : "with full checklists"
+                }`
+              : `${filtered.length} of ${tabPool.length} products${
                   activeFilters.length > 0 ? ` · ${activeFilters.join(" · ")}` : ""
                 }`}
           </p>
@@ -151,6 +166,13 @@ export default async function HomePage({
           </Link>
         </div>
       </div>
+
+      <CatalogTabs
+        current={tab}
+        activeCount={activeProducts.length}
+        comingSoonCount={comingSoonProducts.length}
+        params={params}
+      />
 
       <SearchFilters
         basePath="/"
@@ -180,9 +202,15 @@ export default async function HomePage({
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-12 text-center">
-          <p className="text-base font-semibold text-slate-600">No matches.</p>
+          <p className="text-base font-semibold text-slate-600">
+            {tab === "coming-soon" && tabPool.length === 0
+              ? "No products awaiting checklist."
+              : "No matches."}
+          </p>
           <p className="mt-1 text-xs text-slate-500">
-            Try clearing a filter or searching for a different term.
+            {tab === "coming-soon" && tabPool.length === 0
+              ? "Every product in the catalog has a loaded checklist — nice."
+              : "Try clearing a filter or searching for a different term."}
           </p>
         </div>
       ) : (
@@ -226,6 +254,91 @@ export default async function HomePage({
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * Tab strip splitting the catalog into "Active" (cards loaded) and
+ * "Coming Soon" (no checklist yet). Preserves all other query params on
+ * switch — search/filters/sort travel between tabs — but DROPS year /
+ * sport / manufacturer because they're tab-relative (e.g. you might
+ * have selected an NFL filter on Active that has zero matches in
+ * Coming Soon). The user's intent of "switch view" should never land
+ * them on an empty result by accident.
+ *
+ * scroll={false} keeps the page where it is when switching tabs —
+ * matches the SearchFilters / SortSelector behavior we already shipped.
+ */
+function CatalogTabs({
+  current,
+  activeCount,
+  comingSoonCount,
+  params,
+}: {
+  current: Tab;
+  activeCount: number;
+  comingSoonCount: number;
+  params: { q?: string; sort?: string };
+}) {
+  const buildHref = (next: Tab): string => {
+    const sp = new URLSearchParams();
+    if (params.q) sp.set("q", params.q);
+    if (params.sort) sp.set("sort", params.sort);
+    if (next === "coming-soon") sp.set("tab", "coming-soon");
+    const qs = sp.toString();
+    return qs ? `/?${qs}` : "/";
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200">
+      <TabButton
+        href={buildHref("active")}
+        active={current === "active"}
+        label="Active"
+        count={activeCount}
+      />
+      <TabButton
+        href={buildHref("coming-soon")}
+        active={current === "coming-soon"}
+        label="Coming Soon"
+        count={comingSoonCount}
+      />
+    </div>
+  );
+}
+
+function TabButton({
+  href,
+  active,
+  label,
+  count,
+}: {
+  href: string;
+  active: boolean;
+  label: string;
+  count: number;
+}) {
+  return (
+    <Link
+      href={href}
+      scroll={false}
+      className={`relative -mb-px rounded-t-md border-b-2 px-4 py-2.5 text-xs font-bold uppercase tracking-tight-2 transition ${
+        active
+          ? "border-accent text-ink"
+          : "border-transparent text-slate-500 hover:text-ink"
+      }`}
+    >
+      {label}
+      <span
+        className={`ml-2 rounded-full px-2 py-0.5 text-[10px] tabular-nums ${
+          active
+            ? "bg-accent text-white"
+            : "bg-slate-100 text-slate-500"
+        }`}
+      >
+        {count}
+      </span>
+    </Link>
   );
 }
 
