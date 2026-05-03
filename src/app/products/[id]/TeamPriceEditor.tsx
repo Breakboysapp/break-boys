@@ -105,7 +105,20 @@ export default function TeamPriceEditor({
         </span>
       </Link>
 
-      {/* BREAK BOYS SCORE CARD — primary visualization, leads the section */}
+      {/* Quick link to the weight breakdown at the bottom — users were
+          missing it down there. Anchor + smooth scroll lands them
+          right on the Weight Program section without leaving the page. */}
+      {algorithm.length > 0 && (
+        <a
+          href="#weight-program"
+          className="inline-flex items-center gap-1.5 self-start rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-tight-2 text-slate-600 hover:border-ink hover:text-ink"
+        >
+          See how we score this break
+          <span aria-hidden>↓</span>
+        </a>
+      )}
+
+      {/* BREAK BOYS SCORECARD — primary visualization, leads the section */}
       <TeamBreakdownSheet
         buckets={algorithm}
         teamRows={teamBreakdownRows}
@@ -162,10 +175,16 @@ export default function TeamPriceEditor({
       </div>
 
       {/* Weight program — how the algorithm scores each card type. Sits at
-          the bottom as reference material for anyone curious about the math
-          behind the score card numbers above. */}
+          the bottom as reference material for anyone curious about the
+          math behind the scorecard numbers above. The "See how we score
+          this break" link above the scorecard targets #weight-program;
+          scroll-mt-24 keeps the heading from landing under the sticky
+          global header when the smooth-scroll completes. */}
       {algorithm.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div
+          id="weight-program"
+          className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5"
+        >
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <div>
               <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
