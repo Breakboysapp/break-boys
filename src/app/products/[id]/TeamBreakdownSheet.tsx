@@ -161,9 +161,9 @@ export default function TeamBreakdownSheet({
         per-row bg-ink / bg-white fills behind every cell so the
         rendering stays solid even if a cell ever does have a gap.
       */}
-      <div className="max-h-[640px] overflow-auto overscroll-contain">
+      <div className="isolate max-h-[640px] overflow-auto overscroll-contain">
         <table className="w-full border-separate border-spacing-0 text-sm">
-          <thead className="sticky top-0 z-30 bg-ink text-white">
+          <thead className="sticky top-0 z-40 bg-ink text-white">
             <tr className="bg-ink">
               <th className="sticky left-0 z-40 w-10 bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2">
                 #
