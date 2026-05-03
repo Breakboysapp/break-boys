@@ -491,7 +491,7 @@ function Hero({ featured }: { featured: HeroProduct[] }) {
                     </span>
                   </div>
                   <div className="mt-3 text-[10px] font-bold uppercase tracking-tight-2 text-white/80 group-hover:text-accent">
-                    Open the Score Card →
+                    Open the Scorecard →
                   </div>
                 </Link>
               </li>
