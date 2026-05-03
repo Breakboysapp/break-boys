@@ -36,9 +36,32 @@ async function runSync(slug: string): Promise<SyncResult> {
       result.warnings.push(`Skipped (no sport detected): ${item.name}`);
       continue;
     }
-    const existing = await prisma.product.findUnique({
-      where: { source_externalId: { source: provider.id, externalId: item.externalId } },
+
+    // Lookup pass 1: native (source, externalId) — fast path for products
+    // this provider previously created.
+    let existing = await prisma.product.findUnique({
+      where: {
+        source_externalId: { source: provider.id, externalId: item.externalId },
+      },
     });
+
+    // Lookup pass 2: name + sport. Catches the case where a product was
+    // hand-seeded (source="manual") and the cron then sees an article
+    // about the same product. Without this fallback, the cron would
+    // create a shadow row every time it runs — exactly the duplicate
+    // bug that was surfacing as "Coming Soon" tiles next to populated
+    // ones with the same name.
+    if (!existing) {
+      existing = await prisma.product.findFirst({
+        where: { name: item.name, sport: item.sport },
+      });
+      if (existing) {
+        result.warnings.push(
+          `Adopted manual product: ${item.name} (was source="${existing.source}")`,
+        );
+      }
+    }
+
     if (existing) {
       await prisma.product.update({
         where: { id: existing.id },
@@ -47,6 +70,12 @@ async function runSync(slug: string): Promise<SyncResult> {
           sport: item.sport,
           manufacturer: item.manufacturer ?? existing.manufacturer,
           releaseDate: item.releaseDate ?? existing.releaseDate,
+          // Adopt the provider's externalId on the existing row so the
+          // next sync hits pass 1 instead of pass 2. Stamp the source
+          // too so the row's provenance is no longer "manual" if the
+          // provider is now keeping it fresh.
+          source: provider.id,
+          externalId: item.externalId,
         },
       });
       result.updated++;
