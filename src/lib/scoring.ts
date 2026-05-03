@@ -152,6 +152,30 @@ export type AlgorithmBucket = {
   contribution: number;
 };
 
+/**
+ * Many checklist labels carry the rarity / odds info baked into the
+ * variation name in parentheses, e.g.:
+ *   "PRINTING PLATES - 1/1 (1:6,759 JUMBO, 1:453 SUPER, 1:1,820 ASIA)"
+ * Showing the whole thing in a column header eats vertical space.
+ * Splitting on the first `(` gives a clean display name + a separate
+ * detail string for an info popover.
+ *
+ * Returns `detail = null` when the label has no parenthetical.
+ */
+export function splitVariationLabel(label: string): {
+  name: string;
+  detail: string | null;
+} {
+  // Match: leading non-paren content + outermost (...) tail.
+  // [^]* is "any character including newlines" — greedy so we capture
+  // up to the LAST closing paren if there are nested groups.
+  const m = label.match(/^([^(]+?)\s*\(([^]*)\)\s*$/);
+  if (m) {
+    return { name: m[1].trim(), detail: m[2].trim() };
+  }
+  return { name: label.trim(), detail: null };
+}
+
 export type BreakdownRow = {
   /** The grouping subject — team name or player name depending on view. */
   name: string;
