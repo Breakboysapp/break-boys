@@ -135,7 +135,16 @@ export default function TeamBreakdownSheet({
         </div>
       </div>
 
-      <div className="max-h-[640px] overflow-auto">
+      {/*
+        overscroll-contain stops horizontal panning on this table from
+        chaining into the page (which would otherwise scroll the whole
+        score card section out of view on mobile when you swipe past
+        the table's edge — the user-reported "the whole cart moves"
+        bug). Combined with the sticky-right Break Score + Value
+        columns below, the user rarely needs to scroll at all to see
+        the data they care about.
+      */}
+      <div className="max-h-[640px] overflow-auto overscroll-contain">
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-30 bg-ink text-white">
             <tr>
@@ -160,15 +169,15 @@ export default function TeamBreakdownSheet({
                 </th>
               ))}
               <th
-                className={`px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
-                  sortBy === "score" ? "bg-accent" : "bg-ink"
-                }`}
+                className={`sticky z-40 w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                  anyValueData ? "right-28" : "right-0"
+                } ${sortBy === "score" ? "bg-accent" : "bg-ink"}`}
               >
                 Break Score
               </th>
               {anyValueData && (
                 <th
-                  className={`px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                  className={`sticky right-0 z-40 w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
                     sortBy === "value" ? "bg-accent" : "bg-ink"
                   }`}
                 >
@@ -235,15 +244,15 @@ export default function TeamBreakdownSheet({
                       );
                     })}
                     <td
-                      className={`px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
-                        sortBy === "score" ? "bg-accent/10" : "bg-white"
-                      }`}
+                      className={`sticky z-20 w-24 min-w-[96px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
+                        anyValueData ? "right-28" : "right-0"
+                      } ${sortBy === "score" ? "bg-accent/10" : "bg-white"}`}
                     >
                       {r.totalScore}
                     </td>
                     {anyValueData && (
                       <td
-                        className={`px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
+                        className={`sticky right-0 z-20 w-28 min-w-[112px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
                           sortBy === "value" ? "bg-accent/10" : "bg-white"
                         }`}
                         title={
@@ -299,15 +308,15 @@ export default function TeamBreakdownSheet({
                 </td>
               ))}
               <td
-                className={`px-3 py-2 text-right tabular-nums text-white ${
-                  sortBy === "score" ? "bg-accent" : "bg-ink"
-                }`}
+                className={`sticky z-40 w-24 min-w-[96px] px-3 py-2 text-right tabular-nums text-white ${
+                  anyValueData ? "right-28" : "right-0"
+                } ${sortBy === "score" ? "bg-accent" : "bg-ink"}`}
               >
                 {grandTotalScore}
               </td>
               {anyValueData && (
                 <td
-                  className={`px-3 py-2 text-right tabular-nums text-white ${
+                  className={`sticky right-0 z-40 w-28 min-w-[112px] px-3 py-2 text-right tabular-nums text-white ${
                     sortBy === "value" ? "bg-accent" : "bg-ink"
                   }`}
                   title="Total of confirmed PriceCharting market values across the catalog"
