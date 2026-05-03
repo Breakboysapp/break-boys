@@ -114,10 +114,20 @@ export function classifyCard(
 ): { label: string; weight: number } {
   if (NUMERIC.test(cardNumber)) return { label: "Base", weight: BASE_WEIGHT };
 
-  // Strip the "· RC" suffix Beckett appends so RC and non-RC of the same
-  // subset bucket together ("Talent Tracker · RC" → "Talent Tracker").
+  // Normalize the variation for grouping:
+  //   - Strip the "· RC" suffix Beckett appends so RC and non-RC of the
+  //     same subset bucket together ("Talent Tracker · RC" → "Talent
+  //     Tracker").
+  //   - Strip trailing parenthetical odds blocks so "Superfractors - 1/1
+  //     (1:6,759 JUMBO, 1:453 SUPER)" and "Superfractors - 1/1 (1:7,279
+  //     ASIA)" collapse into one bucket. The original variation string
+  //     (with odds) is preserved per-card and surfaced in the column-
+  //     header info popover via summarizeAlgorithmFor's sources tracking.
   const baseVariation = variation
-    ? variation.replace(/\s*[·•]\s*RC$/i, "").trim() || null
+    ? variation
+        .replace(/\s*[·•]\s*RC$/i, "")
+        .replace(/\s*\([^()]*\)\s*$/, "")
+        .trim() || null
     : null;
 
   // Weight resolution: prefix match wins, then variation category, then default.
@@ -150,6 +160,18 @@ export type AlgorithmBucket = {
   count: number;
   /** count × weight — how many points this bucket contributes to the product total */
   contribution: number;
+  /**
+   * Original variation strings that mapped into this bucket, with the
+   * count of cards each represents. Populated when multiple raw
+   * variations collapse into the same canonical label — e.g., several
+   * different "Superfractors - 1/1 (..different odds..)" strings.
+   * Surfaced in the column-header info popover so users can still see
+   * per-variation odds even after the columns are consolidated.
+   *
+   * Empty / undefined when every card under this bucket shares the
+   * exact same variation string as the label.
+   */
+  sources?: Array<{ variation: string; count: number }>;
 };
 
 /**
@@ -330,6 +352,9 @@ export function summarizeAlgorithmFor(
   cards: { cardNumber: string; variation?: string | null }[],
 ): AlgorithmBucket[] {
   const buckets = new Map<string, AlgorithmBucket>();
+  // label → original-variation-string → count
+  const sourceCounts = new Map<string, Map<string, number>>();
+
   for (const c of cards) {
     const cls = classifyCard(c.cardNumber, c.variation);
     const existing = buckets.get(cls.label);
@@ -344,11 +369,32 @@ export function summarizeAlgorithmFor(
         contribution: cls.weight,
       });
     }
+    // Track the original variation string per bucket. Skip when it's
+    // identical to the bucket label (no extra detail to surface).
+    const raw = (c.variation ?? "").trim();
+    if (raw && raw !== cls.label) {
+      let inner = sourceCounts.get(cls.label);
+      if (!inner) {
+        inner = new Map();
+        sourceCounts.set(cls.label, inner);
+      }
+      inner.set(raw, (inner.get(raw) ?? 0) + 1);
+    }
   }
-  return [...buckets.values()].sort((a, b) => {
-    if (b.weight !== a.weight) return b.weight - a.weight;
-    return b.count - a.count;
-  });
+
+  return [...buckets.values()]
+    .map((b) => {
+      const inner = sourceCounts.get(b.label);
+      if (!inner || inner.size === 0) return b;
+      const sources = [...inner.entries()]
+        .map(([variation, count]) => ({ variation, count }))
+        .sort((a, b) => b.count - a.count);
+      return { ...b, sources };
+    })
+    .sort((a, b) => {
+      if (b.weight !== a.weight) return b.weight - a.weight;
+      return b.count - a.count;
+    });
 }
 
 /**
