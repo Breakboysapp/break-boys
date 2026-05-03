@@ -151,10 +151,20 @@ export default function TeamBreakdownSheet({
         columns below, the user rarely needs to scroll at all to see
         the data they care about.
       */}
+      {/*
+        border-separate + border-spacing-0 is intentional. With
+        border-collapse, sticky cells can leave hairline subpixel seams
+        between them when scrolled — bucket cells slide under those
+        seams and their text peeks through ("BASE SET" appearing
+        between # and TEAM, etc.). With separate, each cell paints
+        its own independent box so the seams disappear, AND the
+        per-row bg-ink / bg-white fills behind every cell so the
+        rendering stays solid even if a cell ever does have a gap.
+      */}
       <div className="max-h-[640px] overflow-auto overscroll-contain">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-30 bg-ink text-white">
-            <tr>
+            <tr className="bg-ink">
               <th className="sticky left-0 z-40 w-10 bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2">
                 #
               </th>
@@ -199,9 +209,11 @@ export default function TeamBreakdownSheet({
               return (
                 <Fragment key={r.name}>
                   <tr
-                    className={`border-b border-slate-100 last:border-0 ${
+                    className={`${
+                      isOpen ? "bg-bone/40" : "bg-white"
+                    } [&>td]:border-b [&>td]:border-slate-100 ${
                       expandable ? "cursor-pointer hover:bg-bone/40" : ""
-                    } ${isOpen ? "bg-bone/40" : ""}`}
+                    }`}
                     onClick={() => expandable && toggle(r.name)}
                   >
                     <td className="sticky left-0 z-20 w-10 bg-white px-3 py-2 text-xs text-slate-400">
@@ -254,14 +266,14 @@ export default function TeamBreakdownSheet({
                     <td
                       className={`sticky z-20 w-24 min-w-[96px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
                         anyValueData ? "right-28" : "right-0"
-                      } ${sortBy === "score" ? "bg-accent/10" : "bg-white"}`}
+                      } ${sortBy === "score" ? "bg-accent-tint" : "bg-white"}`}
                     >
                       {r.totalScore}
                     </td>
                     {anyValueData && (
                       <td
                         className={`sticky right-0 z-20 w-28 min-w-[112px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
-                          sortBy === "value" ? "bg-accent/10" : "bg-white"
+                          sortBy === "value" ? "bg-accent-tint" : "bg-white"
                         }`}
                         title={
                           r.cardsWithMarket > 0
@@ -299,7 +311,7 @@ export default function TeamBreakdownSheet({
             })}
           </tbody>
           <tfoot className="sticky bottom-0 z-30">
-            <tr className="border-t-2 border-ink text-[11px] font-bold uppercase tracking-tight-2 text-slate-700">
+            <tr className="bg-bone [&>td]:border-t-2 [&>td]:border-ink text-[11px] font-bold uppercase tracking-tight-2 text-slate-700">
               <td colSpan={2} className="sticky left-0 z-40 bg-bone px-3 py-2">
                 Total
               </td>

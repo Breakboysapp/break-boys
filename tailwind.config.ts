@@ -7,6 +7,10 @@ const config: Config = {
       colors: {
         ink: "#0a0a0a", // Fanatics-style near-black for headers, primary CTAs
         accent: "#d40028", // Fanatics red — sparingly, for emphasis / hot states
+        // Solid pre-flattened version of accent at ~10% over white. Used on
+        // sticky table cells where bg-accent/10 (translucent) lets the text
+        // of the cell underneath bleed through during horizontal scroll.
+        "accent-tint": "#fbe6ea",
         paper: "#ffffff",
         bone: "#f5f5f5", // background panels
       },
