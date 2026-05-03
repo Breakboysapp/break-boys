@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import HeaderNav from "@/components/HeaderNav";
+import PwaController from "@/components/PwaController";
 import "./globals.css";
 
 // Absolute base for og:image / twitter:image URLs. NEXT_PUBLIC_SITE_URL
@@ -44,6 +45,27 @@ export const metadata: Metadata = {
       "Per-team checklists, content scores, and market values for modern sports card breaks.",
   },
   themeColor: "#0a0a0a",
+  // PWA — Next.js auto-injects <link rel="manifest" href="/manifest.webmanifest"/>
+  manifest: "/manifest.webmanifest",
+  // Apple-specific PWA hints — these are what enable proper "Add to Home
+  // Screen" behavior on iOS Safari (full-screen, no browser chrome,
+  // dark status bar). The icons[apple] entry tells Next to inject
+  // <link rel="apple-touch-icon" href="/apple-icon"/> automatically.
+  appleWebApp: {
+    capable: true,
+    title: "Break Boys",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: {
+    // Stop iOS from auto-linking phone numbers, dates, and addresses in
+    // the score card / checklists (player names with numbers can get
+    // auto-linkified into "tel:" links otherwise).
+    telephone: false,
+    date: false,
+    address: false,
+    email: false,
+    url: false,
+  },
 };
 
 export default function RootLayout({
@@ -97,6 +119,10 @@ export default function RootLayout({
           </nav>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">{children}</main>
+        {/* PWA: registers the SW + shows the install banner. Renders
+            nothing visible when no install prompt is available or the
+            user has dismissed it. */}
+        <PwaController />
       </body>
     </html>
   );
