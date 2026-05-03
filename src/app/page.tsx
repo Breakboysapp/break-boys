@@ -6,9 +6,14 @@ import { extractYears, inferReleaseTime, uniqueSorted } from "@/lib/search";
 
 export const dynamic = "force-dynamic";
 
+// Sort labels are written to read sensibly on BOTH tabs:
+//   Active     — "Latest release date" = most-recently-released first
+//   Coming Soon — "Earliest release date" = soonest-releasing first
+// The default sort flips per tab below so the user lands on the most
+// useful order without having to fiddle with the dropdown.
 const SORT_OPTIONS: SortOption[] = [
-  { value: "release-desc", label: "Newest release first" },
-  { value: "release-asc", label: "Oldest release first" },
+  { value: "release-desc", label: "Latest release date" },
+  { value: "release-asc", label: "Earliest release date" },
   { value: "name-asc", label: "Name A → Z" },
   { value: "cards-desc", label: "Most cards first" },
   { value: "created-desc", label: "Recently added" },
