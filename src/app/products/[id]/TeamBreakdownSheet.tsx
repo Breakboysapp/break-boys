@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
-import { classifyCard } from "@/lib/scoring";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { classifyCard, splitVariationLabel } from "@/lib/scoring";
 import { formatUsd } from "@/lib/money";
 import { getTeamAbbreviation } from "@/lib/team-abbreviations";
 
@@ -49,6 +49,8 @@ export default function TeamBreakdownSheet({
   const [view, setView] = useState<View>("team");
   const [sortBy, setSortBy] = useState<SortBy>("score");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // bucket label whose detail popover is currently open, or null.
+  const [bucketDetail, setBucketDetail] = useState<string | null>(null);
 
   const rawRows = view === "team" ? teamRows : playerRows;
   // Re-sort rows in place each render. Score/Value selection drives the
@@ -173,18 +175,43 @@ export default function TeamBreakdownSheet({
               >
                 {subjectLabel}
               </th>
-              {buckets.map((b) => (
-                <th
-                  key={b.label}
-                  className="bg-ink px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
-                  title={`${b.weight} pts/card`}
-                >
-                  <div className="leading-tight">{b.label}</div>
-                  <div className="text-[9px] font-semibold text-white/60">
-                    ×{b.weight}
-                  </div>
-                </th>
-              ))}
+              {buckets.map((b) => {
+                const split = splitVariationLabel(b.label);
+                return (
+                  <th
+                    key={b.label}
+                    className="bg-ink px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        split.detail && setBucketDetail(b.label)
+                      }
+                      className={`flex w-full flex-col items-end gap-0.5 leading-tight ${
+                        split.detail
+                          ? "cursor-pointer hover:text-accent"
+                          : "cursor-default"
+                      }`}
+                      title={split.detail ?? `${b.weight} pts/card`}
+                    >
+                      <span className="line-clamp-2 text-right">
+                        {split.name}
+                        {split.detail && (
+                          <span
+                            aria-hidden
+                            className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white/40 align-middle text-[8px] font-bold not-italic text-white/70"
+                          >
+                            i
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[9px] font-semibold text-white/60">
+                        ×{b.weight}
+                      </span>
+                    </button>
+                  </th>
+                );
+              })}
               <th
                 className={`sticky z-40 w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
                   anyValueData ? "right-28" : "right-0"
@@ -348,6 +375,13 @@ export default function TeamBreakdownSheet({
           </tfoot>
         </table>
       </div>
+
+      {bucketDetail && (
+        <BucketDetailModal
+          bucket={buckets.find((b) => b.label === bucketDetail)}
+          onClose={() => setBucketDetail(null)}
+        />
+      )}
     </div>
   );
 }
@@ -390,11 +424,18 @@ function PlayerSubBreakdown({
               <th className="sticky left-0 top-0 z-30 min-w-[140px] bg-bone px-2 py-1.5 text-left">
                 Player
               </th>
-              {buckets.map((b) => (
-                <th key={b.label} className="bg-bone px-2 py-1.5 text-left">
-                  {b.label}
-                </th>
-              ))}
+              {buckets.map((b) => {
+                const split = splitVariationLabel(b.label);
+                return (
+                  <th
+                    key={b.label}
+                    className="bg-bone px-2 py-1.5 text-left align-bottom"
+                    title={split.detail ?? undefined}
+                  >
+                    <span className="line-clamp-2">{split.name}</span>
+                  </th>
+                );
+              })}
               <th className="sticky right-0 top-0 z-30 w-16 min-w-[64px] bg-bone px-2 py-1.5 text-right">
                 Score
               </th>
@@ -516,6 +557,101 @@ function SortToggle({
       >
         Value
       </ToggleButton>
+    </div>
+  );
+}
+
+/**
+ * Modal showing the full variation label + odds detail when a user
+ * clicks the "i" icon on a column header. The label is split into a
+ * short display name and a paren-wrapped detail string by
+ * splitVariationLabel; this just presents the detail readably.
+ *
+ * Closes on backdrop click, Escape key, or the explicit close button.
+ * Body scroll is NOT locked because the underlying score card already
+ * has overscroll-contain — locking the body would freeze the rest of
+ * the page unnecessarily.
+ */
+function BucketDetailModal({
+  bucket,
+  onClose,
+}: {
+  bucket: AlgorithmBucket | undefined;
+  onClose: () => void;
+}) {
+  // Escape closes the modal — common keyboard pattern
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!bucket) return null;
+  const split = splitVariationLabel(bucket.label);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={split.name}
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60"
+      />
+      <div className="relative z-10 m-3 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+              Card type · {bucket.weight} pts/card
+            </div>
+            <h2 className="mt-1 text-lg font-extrabold leading-tight tracking-tight-3">
+              {split.name}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-ink"
+          >
+            ✕
+          </button>
+        </div>
+        {split.detail && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-bone p-3">
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
+              Print run / odds
+            </div>
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-snug text-ink">
+              {split.detail}
+            </p>
+          </div>
+        )}
+        <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
+              Cards in product
+            </div>
+            <div className="mt-1 text-base font-extrabold tabular-nums">
+              {bucket.count}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
+              Score contribution
+            </div>
+            <div className="mt-1 text-base font-extrabold tabular-nums">
+              {bucket.contribution} pts
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
