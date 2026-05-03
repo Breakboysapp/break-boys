@@ -474,21 +474,18 @@ function PlayerSubBreakdown({
                   return (
                     <td
                       key={b.label}
-                      className={`max-w-[180px] px-2 py-1.5 align-top ${
-                        nums.length === 0 ? "text-slate-300" : ""
+                      className={`px-2 py-1.5 text-right tabular-nums ${
+                        nums.length === 0 ? "text-slate-300" : "text-ink"
                       }`}
+                      // Card numbers stay accessible on hover for anyone
+                      // who actually wants the IDs, just not in the row
+                      // body (they were eating most of the cell width).
+                      title={nums.length > 0 ? nums.join(", ") : undefined}
                     >
                       {nums.length === 0 ? (
                         "—"
                       ) : (
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="shrink-0 text-[11px] font-bold tabular-nums text-ink">
-                            {nums.length}
-                          </span>
-                          <span className="break-all font-mono text-[10px] leading-tight text-slate-500">
-                            {nums.join(", ")}
-                          </span>
-                        </div>
+                        <span className="text-[12px] font-bold">{nums.length}</span>
                       )}
                     </td>
                   );
