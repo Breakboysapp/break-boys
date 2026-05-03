@@ -169,7 +169,7 @@ export default function TeamBreakdownSheet({
       */}
       <div className="isolate max-h-[640px] overflow-auto overscroll-contain">
         <table className="w-full border-separate border-spacing-0 text-sm">
-          <thead className="sticky top-0 z-40 bg-ink text-white">
+          <thead className="sticky top-0 z-50 bg-ink text-white">
             <tr className="bg-ink">
               {/* shadow-[1px_0_0_0_#0a0a0a] paints a 1px ink-colored
                   extension to the right of the # cell so any subpixel
@@ -436,7 +436,14 @@ function PlayerSubBreakdown({
         max-h caps the sub-table around 9 rows so users can still see the
         next collapsed team row without expanding too far down.
       */}
-      <div className="max-h-[360px] overflow-auto overscroll-contain rounded border border-slate-200 bg-slate-50">
+      {/*
+        isolate creates a stacking context bounded by this scroll container,
+        so the sub-table's sticky thead (z-20) can't compete with the parent
+        score-card thead (z-40) at the page level. Without it, the sub-table's
+        thead text was leaking ABOVE the parent thead because both stacking
+        contexts were at the same level.
+      */}
+      <div className="isolate max-h-[360px] overflow-auto overscroll-contain rounded border border-slate-200 bg-slate-50">
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-20 bg-bone">
             <tr className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
