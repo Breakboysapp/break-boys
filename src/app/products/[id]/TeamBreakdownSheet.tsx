@@ -364,55 +364,71 @@ function PlayerSubBreakdown({
 
   return (
     <div className="px-3 py-2">
-      <table className="w-full border-collapse text-xs">
-        <thead>
-          <tr className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
-            <th className="px-2 py-1.5 text-left">Player</th>
-            {buckets.map((b) => (
-              <th key={b.label} className="px-2 py-1.5 text-left">
-                {b.label}
+      {/*
+        Inner scroll container with its own bounds so the player sub-table
+        can scroll independently of the parent score card. overscroll-contain
+        prevents the gesture from chaining out to the score card or the page.
+        max-h caps the sub-table around 9 rows so users can still see the
+        next collapsed team row without expanding too far down.
+      */}
+      <div className="max-h-[360px] overflow-auto overscroll-contain rounded border border-slate-200 bg-slate-50">
+        <table className="w-full border-collapse text-xs">
+          <thead className="sticky top-0 z-20 bg-bone">
+            <tr className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
+              <th className="sticky left-0 top-0 z-30 min-w-[140px] bg-bone px-2 py-1.5 text-left">
+                Player
               </th>
-            ))}
-            <th className="px-2 py-1.5 text-right">Score</th>
-          </tr>
-        </thead>
-        <tbody>
-          {players.map((p) => (
-            <tr key={p.playerName} className="border-t border-slate-200">
-              <td className="px-2 py-1.5 font-semibold tracking-tight-2 text-slate-800">
-                {p.playerName}
-              </td>
-              {buckets.map((b) => {
-                const nums = p.byBucket.get(b.label) ?? [];
-                return (
-                  <td
-                    key={b.label}
-                    className={`max-w-[180px] px-2 py-1.5 align-top ${
-                      nums.length === 0 ? "text-slate-300" : ""
-                    }`}
-                  >
-                    {nums.length === 0 ? (
-                      "—"
-                    ) : (
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="shrink-0 text-[11px] font-bold tabular-nums text-ink">
-                          {nums.length}
-                        </span>
-                        <span className="break-all font-mono text-[10px] leading-tight text-slate-500">
-                          {nums.join(", ")}
-                        </span>
-                      </div>
-                    )}
-                  </td>
-                );
-              })}
-              <td className="px-2 py-1.5 text-right font-extrabold tabular-nums text-ink">
-                {p.totalScore}
-              </td>
+              {buckets.map((b) => (
+                <th key={b.label} className="bg-bone px-2 py-1.5 text-left">
+                  {b.label}
+                </th>
+              ))}
+              <th className="sticky right-0 top-0 z-30 w-16 min-w-[64px] bg-bone px-2 py-1.5 text-right">
+                Score
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {players.map((p) => (
+              <tr
+                key={p.playerName}
+                className="border-t border-slate-200"
+              >
+                <td className="sticky left-0 z-10 min-w-[140px] bg-slate-50 px-2 py-1.5 font-semibold tracking-tight-2 text-slate-800">
+                  {p.playerName}
+                </td>
+                {buckets.map((b) => {
+                  const nums = p.byBucket.get(b.label) ?? [];
+                  return (
+                    <td
+                      key={b.label}
+                      className={`max-w-[180px] px-2 py-1.5 align-top ${
+                        nums.length === 0 ? "text-slate-300" : ""
+                      }`}
+                    >
+                      {nums.length === 0 ? (
+                        "—"
+                      ) : (
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="shrink-0 text-[11px] font-bold tabular-nums text-ink">
+                            {nums.length}
+                          </span>
+                          <span className="break-all font-mono text-[10px] leading-tight text-slate-500">
+                            {nums.join(", ")}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="sticky right-0 z-10 w-16 min-w-[64px] bg-slate-50 px-2 py-1.5 text-right font-extrabold tabular-nums text-ink">
+                  {p.totalScore}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
