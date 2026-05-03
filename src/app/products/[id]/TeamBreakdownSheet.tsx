@@ -171,7 +171,11 @@ export default function TeamBreakdownSheet({
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-40 bg-ink text-white">
             <tr className="bg-ink">
-              <th className="sticky left-0 z-40 w-10 bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2">
+              {/* shadow-[1px_0_0_0_#0a0a0a] paints a 1px ink-colored
+                  extension to the right of the # cell so any subpixel
+                  seam between # and TEAM is filled with the same color
+                  as the header — no bucket text leaks through. */}
+              <th className="sticky left-0 z-40 w-10 bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2 shadow-[1px_0_0_0_#0a0a0a]">
                 #
               </th>
               <th
@@ -223,16 +227,20 @@ export default function TeamBreakdownSheet({
                   </th>
                 );
               })}
+              {/* Break Score + Value are NOT sticky — pinning four
+                  columns left almost no room for the bucket detail on
+                  mobile, and the user explicitly preferred more
+                  scrolling room to seeing the totals always. */}
               <th
-                className={`sticky z-40 w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
-                  anyValueData ? "right-28" : "right-0"
-                } ${sortBy === "score" ? "bg-accent" : "bg-ink"}`}
+                className={`w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                  sortBy === "score" ? "bg-accent" : "bg-ink"
+                }`}
               >
                 Break Score
               </th>
               {anyValueData && (
                 <th
-                  className={`sticky right-0 z-40 w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                  className={`w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
                     sortBy === "value" ? "bg-accent" : "bg-ink"
                   }`}
                 >
@@ -254,7 +262,7 @@ export default function TeamBreakdownSheet({
                     }`}
                     onClick={() => expandable && toggle(r.name)}
                   >
-                    <td className="sticky left-0 z-20 w-10 bg-white px-3 py-2 text-xs text-slate-400">
+                    <td className="sticky left-0 z-20 w-10 bg-white px-3 py-2 text-xs text-slate-400 shadow-[1px_0_0_0_#ffffff]">
                       {i + 1}
                     </td>
                     <td
@@ -302,15 +310,15 @@ export default function TeamBreakdownSheet({
                       );
                     })}
                     <td
-                      className={`sticky z-20 w-24 min-w-[96px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
-                        anyValueData ? "right-28" : "right-0"
-                      } ${sortBy === "score" ? "bg-accent-tint" : "bg-white"}`}
+                      className={`w-24 min-w-[96px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
+                        sortBy === "score" ? "bg-accent-tint" : "bg-white"
+                      }`}
                     >
                       {r.totalScore}
                     </td>
                     {anyValueData && (
                       <td
-                        className={`sticky right-0 z-20 w-28 min-w-[112px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
+                        className={`w-28 min-w-[112px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
                           sortBy === "value" ? "bg-accent-tint" : "bg-white"
                         }`}
                         title={
@@ -366,15 +374,15 @@ export default function TeamBreakdownSheet({
                 </td>
               ))}
               <td
-                className={`sticky z-40 w-24 min-w-[96px] px-3 py-2 text-right tabular-nums text-white ${
-                  anyValueData ? "right-28" : "right-0"
-                } ${sortBy === "score" ? "bg-accent" : "bg-ink"}`}
+                className={`w-24 min-w-[96px] px-3 py-2 text-right tabular-nums text-white ${
+                  sortBy === "score" ? "bg-accent" : "bg-ink"
+                }`}
               >
                 {grandTotalScore}
               </td>
               {anyValueData && (
                 <td
-                  className={`sticky right-0 z-40 w-28 min-w-[112px] px-3 py-2 text-right tabular-nums text-white ${
+                  className={`w-28 min-w-[112px] px-3 py-2 text-right tabular-nums text-white ${
                     sortBy === "value" ? "bg-accent" : "bg-ink"
                   }`}
                   title="Total of confirmed PriceCharting market values across the catalog"
