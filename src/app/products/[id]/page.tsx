@@ -6,8 +6,10 @@ import {
   computeBreakdown,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
+import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
+import FavoriteButton from "./FavoriteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,16 @@ export default async function ProductPage({
   });
   if (!product) notFound();
 
+  // Favorited state for the heart toggle in the hero. One small query;
+  // the Product page is force-dynamic anyway so per-request is fine.
+  const favorite = await prisma.userFavoriteProduct.findUnique({
+    where: {
+      userId_productId: { userId: CURRENT_USER_ID, productId: product.id },
+    },
+    select: { id: true },
+  });
+  const isFavorited = favorite != null;
+
   const algorithm = summarizeAlgorithmFor(product.cards);
   const teamBreakdown = computeBreakdown(product.cards, "team");
   const playerBreakdown = computeBreakdown(product.cards, "playerName");
@@ -51,7 +63,16 @@ export default async function ProductPage({
   return (
     <div className="space-y-10">
       {/* Hero header */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+      <div className="relative rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+        {/* Favorite toggle, top-right of the hero. Saved per-user (still
+            stubbed to "local" until auth lands) — surfaced under the
+            Favorites link in the global nav. */}
+        <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+          <FavoriteButton
+            productId={product.id}
+            initialFavorited={isFavorited}
+          />
+        </div>
         <Link
           href="/"
           className="text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-ink"

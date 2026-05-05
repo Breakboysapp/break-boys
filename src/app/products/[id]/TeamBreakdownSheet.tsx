@@ -175,11 +175,18 @@ export default function TeamBreakdownSheet({
                   extension to the right of the # cell so any subpixel
                   seam between # and TEAM is filled with the same color
                   as the header — no bucket text leaks through. */}
-              <th className="sticky left-0 z-40 w-10 bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2 shadow-[1px_0_0_0_#0a0a0a]">
+              {/*
+                transform-gpu + will-change-transform fixes the iOS
+                Safari bug where sticky-positioned cells briefly
+                "unstick" during a fast horizontal swipe — the cells
+                drift before snapping back. Forcing them onto their
+                own GPU compositor layer keeps them locked.
+              */}
+              <th className="sticky left-0 z-40 w-10 bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2 shadow-[1px_0_0_0_#0a0a0a] transform-gpu will-change-transform">
                 #
               </th>
               <th
-                className={`sticky left-10 z-40 ${subjectMinWidth} bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2`}
+                className={`sticky left-10 z-40 ${subjectMinWidth} bg-ink px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2 transform-gpu will-change-transform`}
               >
                 {subjectLabel}
               </th>
@@ -262,11 +269,11 @@ export default function TeamBreakdownSheet({
                     }`}
                     onClick={() => expandable && toggle(r.name)}
                   >
-                    <td className="sticky left-0 z-20 w-10 bg-white px-3 py-2 text-xs text-slate-400 shadow-[1px_0_0_0_#ffffff]">
+                    <td className="sticky left-0 z-20 w-10 bg-white px-3 py-2 text-xs text-slate-400 shadow-[1px_0_0_0_#ffffff] transform-gpu will-change-transform">
                       {i + 1}
                     </td>
                     <td
-                      className={`sticky left-10 z-20 ${subjectMinWidth} bg-white px-3 py-2 font-semibold tracking-tight-2`}
+                      className={`sticky left-10 z-20 ${subjectMinWidth} bg-white px-3 py-2 font-semibold tracking-tight-2 transform-gpu will-change-transform`}
                       title={view === "team" ? r.name : undefined}
                     >
                       {expandable && (
@@ -358,7 +365,10 @@ export default function TeamBreakdownSheet({
           </tbody>
           <tfoot className="sticky bottom-0 z-30">
             <tr className="bg-bone [&>td]:border-t-2 [&>td]:border-ink text-[11px] font-bold uppercase tracking-tight-2 text-slate-700">
-              <td colSpan={2} className="sticky left-0 z-40 bg-bone px-3 py-2">
+              <td
+                colSpan={2}
+                className="sticky left-0 z-40 bg-bone px-3 py-2 transform-gpu will-change-transform"
+              >
                 Total
               </td>
               {buckets.map((b) => (
@@ -447,7 +457,7 @@ function PlayerSubBreakdown({
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-20 bg-bone">
             <tr className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
-              <th className="sticky left-0 top-0 z-30 min-w-[140px] bg-bone px-2 py-1.5 text-left">
+              <th className="sticky left-0 top-0 z-30 min-w-[140px] bg-bone px-2 py-1.5 text-left transform-gpu will-change-transform">
                 Player
               </th>
               {buckets.map((b) => {
@@ -462,7 +472,7 @@ function PlayerSubBreakdown({
                   </th>
                 );
               })}
-              <th className="sticky right-0 top-0 z-30 w-16 min-w-[64px] bg-bone px-2 py-1.5 text-right">
+              <th className="sticky right-0 top-0 z-30 w-16 min-w-[64px] bg-bone px-2 py-1.5 text-right transform-gpu will-change-transform">
                 Score
               </th>
             </tr>
@@ -473,7 +483,7 @@ function PlayerSubBreakdown({
                 key={p.playerName}
                 className="border-t border-slate-200"
               >
-                <td className="sticky left-0 z-10 min-w-[140px] bg-slate-50 px-2 py-1.5 font-semibold tracking-tight-2 text-slate-800">
+                <td className="sticky left-0 z-10 min-w-[140px] bg-slate-50 px-2 py-1.5 font-semibold tracking-tight-2 text-slate-800 transform-gpu will-change-transform">
                   {p.playerName}
                 </td>
                 {buckets.map((b) => {
@@ -497,7 +507,7 @@ function PlayerSubBreakdown({
                     </td>
                   );
                 })}
-                <td className="sticky right-0 z-10 w-16 min-w-[64px] bg-slate-50 px-2 py-1.5 text-right font-extrabold tabular-nums text-ink">
+                <td className="sticky right-0 z-10 w-16 min-w-[64px] bg-slate-50 px-2 py-1.5 text-right font-extrabold tabular-nums text-ink transform-gpu will-change-transform">
                   {p.totalScore}
                 </td>
               </tr>
