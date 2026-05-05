@@ -10,7 +10,7 @@ import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
 import FavoriteButton from "./FavoriteButton";
-import ProductFormatsEditor from "./ProductFormatsEditor";
+import ProductFormatsBar from "./ProductFormatsBar";
 
 export const dynamic = "force-dynamic";
 
@@ -116,22 +116,23 @@ export default async function ProductPage({
         )}
       </div>
 
-      {/* Box formats — Hobby / Jumbo / Mega Box / Super Jumbo / etc.
-          Available regardless of whether the checklist is loaded yet,
-          so a buyer can plan around announced format pricing even on
-          Coming Soon products. */}
-      <ProductFormatsEditor
-        productId={product.id}
-        initialFormats={product.formats.map((f) => ({
-          id: f.id,
-          name: f.name,
-          packsPerBox: f.packsPerBox,
-          cardsPerPack: f.cardsPerPack,
-          autosPerBox: f.autosPerBox,
-          notes: f.notes,
-          position: f.position,
-        }))}
-      />
+      {/* Box format selector — compact native <select> dropdown.
+          Pre-seeded for every product based on its name pattern
+          (src/lib/product-formats-defaults.ts), so users never see
+          an empty editor; they just pick the format they care about
+          and read the inline summary + notes. */}
+      {product.formats.length > 0 && (
+        <ProductFormatsBar
+          formats={product.formats.map((f) => ({
+            id: f.id,
+            name: f.name,
+            packsPerBox: f.packsPerBox,
+            cardsPerPack: f.cardsPerPack,
+            autosPerBox: f.autosPerBox,
+            notes: f.notes,
+          }))}
+        />
+      )}
 
       {isComingSoon ? (
         <ComingSoon productId={product.id} />
