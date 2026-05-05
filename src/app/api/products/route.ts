@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { detectManufacturer } from "@/lib/manufacturer";
+import { defaultFormatsForProduct } from "@/lib/product-formats-defaults";
 
 export async function GET() {
   const products = await prisma.product.findMany({
@@ -36,5 +37,29 @@ export async function POST(request: Request) {
       releaseDate: body.releaseDate ? new Date(body.releaseDate) : null,
     },
   });
+
+  // Auto-seed box formats based on the product's name. Without this,
+  // every new product would land with an empty format list and the
+  // user would have to fill it in manually — which they won't. The
+  // heuristic in src/lib/product-formats-defaults.ts maps common
+  // brand patterns (Bowman Draft, Topps Chrome, etc.) to their
+  // canonical format sets; a terminal fallback ensures every product
+  // gets at least a "Hobby" entry.
+  const templates = defaultFormatsForProduct(name);
+  if (templates.length > 0) {
+    await prisma.productFormat.createMany({
+      data: templates.map((t, i) => ({
+        productId: product.id,
+        name: t.name,
+        packsPerBox: t.packsPerBox,
+        cardsPerPack: t.cardsPerPack,
+        autosPerBox: t.autosPerBox,
+        notes: t.notes,
+        position: i,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   return NextResponse.json(product, { status: 201 });
 }
