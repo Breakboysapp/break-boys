@@ -199,23 +199,65 @@ export async function importSet(
 
   const now = new Date();
 
-  // BULK strategy: 7,500-card sets blow past Vercel's 300s function cap
-  // when each card runs its own findUnique → update/create roundtrip.
-  // Restructured into:
-  //   1. One query to fetch every existing pricechartingId on this product
-  //   2. Classify console rows into "create new" vs "update existing"
-  //   3. createMany() the new ones in chunks (single query each)
-  //   4. update() the existing ones in chunked $transaction batches
-  // This drops total DB roundtrips from O(7500) to O(~150) and brings a
-  // full-set refresh well inside the 300s envelope.
+  // BULK strategy + match-only mode for adopted products.
+  //
+  // The importer pre-fetches every card on this product and builds
+  // three lookup maps: by PC id, by (cardNumber, variation), and by
+  // (playerName, cardNumber). Each PC console row tries those keys in
+  // order. The first hit wins.
+  //
+  // When the product already has manually-uploaded cards (cards with
+  // no pricechartingId), we run in MATCH-ONLY mode: PC rows that don't
+  // match any existing card get skipped, NOT created as new "—" team
+  // rows. The manual checklist is the source of truth for what's
+  // pullable; PC just provides prices for the cards that are already
+  // there. This keeps adopted products visually identical to before
+  // import — same 1,141 cards with their teams — just with prices and
+  // pop counts layered on top.
+  //
+  // Fresh products with no manual data fall through to the normal
+  // create-everything behavior so e.g. a brand new Sapphire Selections
+  // import populates the full set.
 
-  const existingRows = await prisma.card.findMany({
-    where: { productId: product.id, pricechartingId: { not: null } },
-    select: { id: true, pricechartingId: true },
+  const existingCards = await prisma.card.findMany({
+    where: { productId: product.id },
+    select: {
+      id: true,
+      cardNumber: true,
+      variation: true,
+      playerName: true,
+      pricechartingId: true,
+    },
   });
+  const norm = (s: string | null | undefined) =>
+    (s ?? "")
+      .toLowerCase()
+      .replace(/[\[\](){}.,#:;'"]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const cardKey = (n: string, v: string | null) =>
+    `${norm(n)}|${norm(v)}`;
+  const playerCardKey = (p: string, n: string) =>
+    `${norm(p)}|${norm(n)}`;
+
   const existingByPCId = new Map<string, string>();
-  for (const r of existingRows) {
-    if (r.pricechartingId) existingByPCId.set(r.pricechartingId, r.id);
+  const existingByCardKey = new Map<string, string>();
+  const existingByPlayerCard = new Map<string, string>();
+  let manualCardCount = 0;
+  for (const c of existingCards) {
+    if (c.pricechartingId) {
+      existingByPCId.set(c.pricechartingId, c.id);
+    } else {
+      manualCardCount++;
+    }
+    existingByCardKey.set(cardKey(c.cardNumber, c.variation), c.id);
+    existingByPlayerCard.set(playerCardKey(c.playerName, c.cardNumber), c.id);
+  }
+  const matchOnlyMode = manualCardCount > 0;
+  if (matchOnlyMode) {
+    progress(
+      `[${meta.slug}] match-only mode (${manualCardCount} manually-uploaded cards on this product — won't create new rows)`,
+    );
   }
 
   // Shared shape for both new-row inserts (createMany) and existing-row
@@ -261,16 +303,45 @@ export async function importSet(
       pricesUpdatedAt: now,
       ...popFields,
     };
-    const existingId = existingByPCId.get(c.id);
+    // Match priority: PC id (exact, from prior runs) → exact card key
+    // (cardNumber + variation) → looser player+cardNumber. The looser
+    // match catches cases where the manual checklist's variation
+    // string differs from PC's parsed variation ("Refractors" vs
+    // "Refractor", etc.).
+    const existingId =
+      existingByPCId.get(c.id) ??
+      existingByCardKey.get(
+        cardKey(parsed.cardNumber, parsed.variation),
+      ) ??
+      existingByPlayerCard.get(
+        playerCardKey(parsed.playerName, parsed.cardNumber),
+      );
+
     if (existingId) {
-      // Update path. Don't write team — never clobber an existing
-      // manually-set team value. Don't write productId either; an
-      // existing row already has the right one.
-      toUpdate.push({ id: existingId, data: sharedFields });
+      // Update path. Don't write team / playerName / cardNumber /
+      // variation — those are the user's manual values and we just
+      // layer prices on top.
+      toUpdate.push({
+        id: existingId,
+        data: {
+          pricechartingId: c.id,
+          ungradedCents: c.ungradedCents,
+          psa10Cents: c.psa10Cents,
+          psa9Cents: c.psa9Cents,
+          printRun: c.printRun || null,
+          imageUrl: c.imageUri || null,
+          pricesUpdatedAt: now,
+          ...popFields,
+        },
+      });
+    } else if (matchOnlyMode) {
+      // Manual checklist exists; PC has a card the user didn't
+      // upload — likely a Sapphire-leakage parallel or a variant
+      // that isn't in the official Beckett checklist. Skip rather
+      // than create a "—" team orphan.
+      result.skipped++;
     } else {
-      // Insert path. team="—" placeholder fills the required column;
-      // CSV checklist uploads or future per-card /api/product calls
-      // populate real teams.
+      // Fresh product, create normally.
       toCreate.push({ ...sharedFields, productId: product.id, team: "—" });
     }
   }
