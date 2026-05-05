@@ -3,16 +3,24 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import FacetDropdown from "./FacetDropdown";
 
 export type FacetSpec = {
   /** Display label, e.g. "Year" */
   label: string;
   /** URL search-param key, e.g. "year" */
   paramKey: string;
-  /** Sorted list of options to render as chips */
+  /** Sorted list of options */
   values: string[];
   /** Currently-selected value (or null for "All") */
   selected: string | null;
+  /**
+   * How to render this facet.
+   *   "chips"    — inline pill list (default; good for ≤4 values)
+   *   "dropdown" — collapsed selector (good for many values; takes less
+   *                vertical space; Year/Manufacturer use this)
+   */
+  variant?: "chips" | "dropdown";
 };
 
 /**
@@ -92,13 +100,34 @@ export default function SearchFilters({
         )}
       </div>
 
-      {facets.map((facet) => (
-        <ChipRow
-          key={facet.paramKey}
-          basePath={basePath}
-          facet={facet}
-        />
-      ))}
+      {/* Chip facets render one per row (good for 3-4 values inline).
+          Dropdown facets group onto a single shared row to save space —
+          Year + Manufacturer use this on the catalog page. */}
+      {facets
+        .filter((f) => (f.variant ?? "chips") === "chips")
+        .map((facet) => (
+          <ChipRow
+            key={facet.paramKey}
+            basePath={basePath}
+            facet={facet}
+          />
+        ))}
+      {facets.some((f) => f.variant === "dropdown") && (
+        <div className="flex flex-wrap items-center gap-2">
+          {facets
+            .filter((f) => f.variant === "dropdown")
+            .map((facet) => (
+              <FacetDropdown
+                key={facet.paramKey}
+                basePath={basePath}
+                label={facet.label}
+                paramKey={facet.paramKey}
+                values={facet.values}
+                selected={facet.selected}
+              />
+            ))}
+        </div>
+      )}
     </div>
   );
 }
