@@ -22,12 +22,10 @@
  */
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { centsToDisplay, dollarsToCents, formatUsd } from "@/lib/money";
 
 type Format = {
   id: string;
   name: string;
-  boxPriceCents: number | null;
   packsPerBox: number | null;
   cardsPerPack: number | null;
   autosPerBox: number | null;
@@ -115,7 +113,7 @@ export default function ProductFormatsEditor({
             Hobby, Jumbo, Mega &amp; more
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            Each format has its own box price, configuration, and odds.
+            Each format has its own pack configuration and auto count.
             Add the variants this product comes in.
           </p>
         </div>
@@ -243,26 +241,7 @@ function FormatCard({
         </button>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        <Field
-          label="Box price"
-          prefix="$"
-          defaultValue={centsToDisplay(format.boxPriceCents)}
-          onCommit={(v) => {
-            const cents = dollarsToCents(v);
-            if (cents !== format.boxPriceCents) onPatch({ boxPriceCents: cents });
-          }}
-        />
-        <Field
-          label="Autos / box"
-          defaultValue={format.autosPerBox?.toString() ?? ""}
-          onCommit={(v) => {
-            const n = v.trim() === "" ? null : Number(v);
-            if (n !== format.autosPerBox && (n == null || !Number.isNaN(n))) {
-              onPatch({ autosPerBox: n });
-            }
-          }}
-        />
+      <div className="mt-3 grid grid-cols-3 gap-3">
         <Field
           label="Packs / box"
           defaultValue={format.packsPerBox?.toString() ?? ""}
@@ -280,6 +259,16 @@ function FormatCard({
             const n = v.trim() === "" ? null : parseInt(v, 10);
             if (n !== format.cardsPerPack && (n == null || !Number.isNaN(n))) {
               onPatch({ cardsPerPack: n });
+            }
+          }}
+        />
+        <Field
+          label="Autos / box"
+          defaultValue={format.autosPerBox?.toString() ?? ""}
+          onCommit={(v) => {
+            const n = v.trim() === "" ? null : Number(v);
+            if (n !== format.autosPerBox && (n == null || !Number.isNaN(n))) {
+              onPatch({ autosPerBox: n });
             }
           }}
         />
@@ -302,13 +291,19 @@ function FormatCard({
         />
       </label>
 
-      {format.boxPriceCents != null && (
+      {(format.autosPerBox != null ||
+        (format.packsPerBox != null && format.cardsPerPack != null)) && (
         <div className="mt-2 text-[11px] text-slate-500">
-          {formatUsd(format.boxPriceCents)}
-          {format.autosPerBox != null && ` · ${format.autosPerBox} autos/box`}
-          {format.packsPerBox != null &&
+          {format.packsPerBox != null && format.cardsPerPack != null && (
+            <>{format.packsPerBox * format.cardsPerPack} cards/box</>
+          )}
+          {format.autosPerBox != null &&
+            format.packsPerBox != null &&
             format.cardsPerPack != null &&
-            ` · ${format.packsPerBox * format.cardsPerPack} cards/box`}
+            " · "}
+          {format.autosPerBox != null && (
+            <>{format.autosPerBox} autos/box</>
+          )}
         </div>
       )}
     </li>

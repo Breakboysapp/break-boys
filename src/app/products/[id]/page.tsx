@@ -34,11 +34,7 @@ export default async function ProductPage({
         },
       },
       formats: {
-        orderBy: [
-          { position: "asc" },
-          { boxPriceCents: "asc" },
-          { createdAt: "asc" },
-        ],
+        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
       },
       _count: { select: { cards: true } },
     },
@@ -129,7 +125,6 @@ export default async function ProductPage({
         initialFormats={product.formats.map((f) => ({
           id: f.id,
           name: f.name,
-          boxPriceCents: f.boxPriceCents,
           packsPerBox: f.packsPerBox,
           cardsPerPack: f.cardsPerPack,
           autosPerBox: f.autosPerBox,

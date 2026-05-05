@@ -158,8 +158,6 @@ model ProductFormat {
   // ("Hanger Box", "Vending Box", "FOTL", "Choice Box") fit without
   // a schema change.
   name            String
-  // Per-buyer slot price for one full box of this format (cents).
-  boxPriceCents   Int?
   packsPerBox     Int?
   cardsPerPack    Int?
   // Float because expected autos can be fractional ("avg 1.5 per
@@ -169,7 +167,7 @@ model ProductFormat {
   // Free-text — surfaced as a small italics line on the format card.
   notes           String?
   // Sort order on the product page. Lower = leftmost. Tie-break by
-  // boxPriceCents ascending, then by createdAt.
+  // createdAt ascending.
   position        Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt

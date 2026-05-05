@@ -7,7 +7,6 @@ import { prisma } from "@/lib/prisma";
 
 type Body = {
   name?: string;
-  boxPriceCents?: number | null;
   packsPerBox?: number | null;
   cardsPerPack?: number | null;
   autosPerBox?: number | null;
@@ -40,7 +39,6 @@ export async function POST(
       data: {
         productId: id,
         name,
-        boxPriceCents: body.boxPriceCents ?? null,
         packsPerBox: body.packsPerBox ?? null,
         cardsPerPack: body.cardsPerPack ?? null,
         autosPerBox: body.autosPerBox ?? null,

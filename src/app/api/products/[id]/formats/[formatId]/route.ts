@@ -10,7 +10,6 @@ import { prisma } from "@/lib/prisma";
 
 type Body = {
   name?: string;
-  boxPriceCents?: number | null;
   packsPerBox?: number | null;
   cardsPerPack?: number | null;
   autosPerBox?: number | null;
@@ -29,7 +28,6 @@ export async function PATCH(
   // existing values with null when the client sent a partial.
   const data: Body = {};
   if (body.name != null) data.name = body.name.trim();
-  if ("boxPriceCents" in body) data.boxPriceCents = body.boxPriceCents;
   if ("packsPerBox" in body) data.packsPerBox = body.packsPerBox;
   if ("cardsPerPack" in body) data.cardsPerPack = body.cardsPerPack;
   if ("autosPerBox" in body) data.autosPerBox = body.autosPerBox;
