@@ -76,11 +76,20 @@ export type ImportResult = {
  * Run a single set's ingest end-to-end. Idempotent — re-running refreshes
  * prices + pop counts on existing cards (matched by pricechartingId) and
  * creates rows for any cards new to the set since last run.
+ *
+ * @param opts.skipPop - When true, skips the pop-report fetch entirely.
+ *   The pop endpoint is on a Cloudflare-protected SCP host that hangs
+ *   from Vercel's serverless runtime even with curl (something about
+ *   the Lambda egress IP / TLS fingerprint). Setting skipPop=true on
+ *   the cron route keeps refreshes fast and unblocked; pop counts are
+ *   backfilled later via the local CLI script which doesn't hit the
+ *   same network restriction.
  */
 export async function importSet(
   prisma: PrismaClient,
   meta: SlugMeta,
   progress: ImportProgress = () => {},
+  opts: { skipPop?: boolean } = {},
 ): Promise<ImportResult> {
   const result: ImportResult = {
     slug: meta.slug,
@@ -93,17 +102,21 @@ export async function importSet(
     popFetchError: null,
   };
 
-  progress(`[${meta.slug}] fetching pop report…`);
   let popRows: PCPopRow[] = [];
-  try {
-    popRows = await fetchPopRows(meta.slug);
-    result.popRows = popRows.length;
-    progress(`[${meta.slug}]   ${popRows.length} pop rows`);
-  } catch (err) {
-    result.popFetchError = err instanceof Error ? err.message : String(err);
-    progress(
-      `[${meta.slug}]   pop fetch failed (continuing without pop): ${result.popFetchError}`,
-    );
+  if (opts.skipPop) {
+    progress(`[${meta.slug}] skipping pop fetch (skipPop=true)`);
+  } else {
+    progress(`[${meta.slug}] fetching pop report…`);
+    try {
+      popRows = await fetchPopRows(meta.slug);
+      result.popRows = popRows.length;
+      progress(`[${meta.slug}]   ${popRows.length} pop rows`);
+    } catch (err) {
+      result.popFetchError = err instanceof Error ? err.message : String(err);
+      progress(
+        `[${meta.slug}]   pop fetch failed (continuing without pop): ${result.popFetchError}`,
+      );
+    }
   }
   const popByLabel = new Map<string, PCPopRow>();
   for (const r of popRows) popByLabel.set(r.cardLabel, r);
@@ -188,6 +201,20 @@ export async function importSet(
       continue;
     }
     const pop = popByLabel.get(c.productName);
+    // Only include pop fields when we have fresh pop data for this card.
+    // When skipPop=true (cron path) we DON'T want to clobber existing pop
+    // counts written by a prior local-CLI run with nulls.
+    const popFields = pop
+      ? {
+          popG6: pop.popG6 ?? null,
+          popG7: pop.popG7 ?? null,
+          popG8: pop.popG8 ?? null,
+          popG9: pop.popG9 ?? null,
+          popG10: pop.popG10 ?? null,
+          popTotal: pop.popTotal ?? null,
+          popUpdatedAt: now,
+        }
+      : {};
     const sharedFields = {
       playerName: parsed.playerName,
       cardNumber: parsed.cardNumber,
@@ -199,13 +226,7 @@ export async function importSet(
       printRun: c.printRun || null,
       imageUrl: c.imageUri || null,
       pricesUpdatedAt: now,
-      popG6: pop?.popG6 ?? null,
-      popG7: pop?.popG7 ?? null,
-      popG8: pop?.popG8 ?? null,
-      popG9: pop?.popG9 ?? null,
-      popG10: pop?.popG10 ?? null,
-      popTotal: pop?.popTotal ?? null,
-      popUpdatedAt: pop ? now : null,
+      ...popFields,
     };
     const existingId = existingByPCId.get(c.id);
     if (existingId) {

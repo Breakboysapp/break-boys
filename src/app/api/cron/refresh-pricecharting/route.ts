@@ -75,7 +75,12 @@ export async function GET(req: NextRequest) {
         );
         send("");
         for (const meta of slugs) {
-          await importSet(prisma, meta, send);
+          // skipPop: pop fetch hangs from Vercel's serverless egress
+          // (Cloudflare bot-walls the SCP host even via curl). Pop
+          // counts get backfilled later via the local CLI script which
+          // doesn't hit the same restriction. Cron stays fast +
+          // unblocked, prices stay fresh, gem rates are best-effort.
+          await importSet(prisma, meta, send, { skipPop: true });
           send("");
         }
         send("All sets refreshed.");
