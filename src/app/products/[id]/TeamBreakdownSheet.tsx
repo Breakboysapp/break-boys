@@ -440,80 +440,58 @@ function PlayerSubBreakdown({
   return (
     <div className="px-3 py-2">
       {/*
-        Inner scroll container with its own bounds so the player sub-table
-        can scroll independently of the parent score card. overscroll-contain
-        prevents the gesture from chaining out to the score card or the page.
-        max-h caps the sub-table around 9 rows so users can still see the
-        next collapsed team row without expanding too far down.
+        Compact 3-column layout — Player / Card mix / Score — replaces
+        the wide bucket-by-bucket sub-table that visually didn't line
+        up with the parent score card and felt jumbled on mobile. The
+        per-bucket counts move into a single inline 'mix' string ("4
+        Base · 1 Auto · 2 Inserts") that scales cleanly regardless of
+        how many buckets the product has. Vertical scroll caps at
+        max-h-[360px] so a deep team doesn't push the next row off
+        screen.
       */}
-      {/*
-        isolate creates a stacking context bounded by this scroll container,
-        so the sub-table's sticky thead (z-20) can't compete with the parent
-        score-card thead (z-40) at the page level. Without it, the sub-table's
-        thead text was leaking ABOVE the parent thead because both stacking
-        contexts were at the same level.
-      */}
-      <div className="isolate max-h-[360px] overflow-auto overscroll-none rounded border border-slate-200 bg-slate-50">
-        <table className="w-full border-collapse text-xs">
-          <thead className="sticky top-0 z-20 bg-bone">
-            <tr className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
-              <th className="sticky left-0 top-0 z-30 min-w-[140px] bg-bone px-2 py-1.5 text-left transform-gpu will-change-transform">
-                Player
-              </th>
-              {buckets.map((b) => {
-                const split = splitVariationLabel(b.label);
-                return (
-                  <th
-                    key={b.label}
-                    className="bg-bone px-2 py-1.5 text-left align-bottom"
-                    title={split.detail ?? undefined}
-                  >
-                    <span className="line-clamp-2">{split.name}</span>
-                  </th>
-                );
-              })}
-              <th className="sticky right-0 top-0 z-30 w-16 min-w-[64px] bg-bone px-2 py-1.5 text-right transform-gpu will-change-transform">
-                Score
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {players.map((p) => (
-              <tr
-                key={p.playerName}
-                className="border-t border-slate-200"
-              >
-                <td className="sticky left-0 z-10 min-w-[140px] bg-slate-50 px-2 py-1.5 font-semibold tracking-tight-2 text-slate-800 transform-gpu will-change-transform">
-                  {p.playerName}
-                </td>
-                {buckets.map((b) => {
+      <div className="overflow-hidden rounded border border-slate-200 bg-slate-50">
+        <div className="max-h-[360px] overflow-y-auto overscroll-none">
+          <ul className="divide-y divide-slate-200">
+            {players.map((p) => {
+              // Build a short mix summary like "4 Base · 1 Auto · 2 Insert".
+              // Sort by bucket weight desc so heavier card types appear first.
+              const mix = buckets
+                .map((b) => {
                   const nums = p.byBucket.get(b.label) ?? [];
-                  return (
-                    <td
-                      key={b.label}
-                      className={`px-2 py-1.5 text-right tabular-nums ${
-                        nums.length === 0 ? "text-slate-300" : "text-ink"
-                      }`}
-                      // Card numbers stay accessible on hover for anyone
-                      // who actually wants the IDs, just not in the row
-                      // body (they were eating most of the cell width).
-                      title={nums.length > 0 ? nums.join(", ") : undefined}
-                    >
-                      {nums.length === 0 ? (
-                        "—"
-                      ) : (
-                        <span className="text-[12px] font-bold">{nums.length}</span>
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="sticky right-0 z-10 w-16 min-w-[64px] bg-slate-50 px-2 py-1.5 text-right font-extrabold tabular-nums text-ink transform-gpu will-change-transform">
-                  {p.totalScore}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  if (nums.length === 0) return null;
+                  const split = splitVariationLabel(b.label);
+                  return `${nums.length} ${split.name}`;
+                })
+                .filter((s): s is string => s != null);
+
+              return (
+                <li
+                  key={p.playerName}
+                  className="flex items-baseline gap-3 px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-semibold tracking-tight-2 text-ink">
+                      {p.playerName}
+                    </div>
+                    {mix.length > 0 && (
+                      <div className="mt-0.5 truncate text-[10px] text-slate-500">
+                        {mix.join("  ·  ")}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-base font-extrabold tabular-nums leading-none text-ink">
+                      {p.totalScore}
+                    </div>
+                    <div className="mt-0.5 text-[9px] uppercase tracking-tight-2 text-slate-400">
+                      pts
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </div>
     </div>
   );
