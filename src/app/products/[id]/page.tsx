@@ -31,6 +31,17 @@ export default async function ProductPage({
           playerName: true,
           variation: true,
           marketValueCents: true,
+          // PriceCharting per-card data — feeds the Chase scoreboard.
+          // All optional; products that haven't been imported through
+          // scripts/import-pricecharting-set.ts have these as null and
+          // the Chase toggle stays hidden.
+          ungradedCents: true,
+          psa10Cents: true,
+          psa9Cents: true,
+          printRun: true,
+          imageUrl: true,
+          popG10: true,
+          popTotal: true,
         },
       },
       formats: {
@@ -158,6 +169,18 @@ export default async function ProductPage({
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   marketValueCents: c.marketValueCents,
+                }))}
+                chaseCards={product.cards.map((c) => ({
+                  playerName: c.playerName,
+                  cardNumber: c.cardNumber,
+                  variation: c.variation,
+                  ungradedCents: c.ungradedCents,
+                  psa10Cents: c.psa10Cents,
+                  psa9Cents: c.psa9Cents,
+                  printRun: c.printRun,
+                  imageUrl: c.imageUrl,
+                  popG10: c.popG10,
+                  popTotal: c.popTotal,
                 }))}
               />
             </section>
