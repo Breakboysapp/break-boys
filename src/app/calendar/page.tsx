@@ -87,13 +87,26 @@ export default async function CalendarPage({
         searchPlaceholder="Search calendar by product name…"
         initialQuery={params.q ?? ""}
         facets={[
-          { label: "Year", paramKey: "year", values: years, selected: year },
-          { label: "Sport", paramKey: "sport", values: sports, selected: sport },
+          {
+            label: "Sport",
+            paramKey: "sport",
+            values: sports,
+            selected: sport,
+            variant: "chips",
+          },
+          {
+            label: "Year",
+            paramKey: "year",
+            values: years,
+            selected: year,
+            variant: "dropdown",
+          },
           {
             label: "Manufacturer",
             paramKey: "mfr",
             values: manufacturers,
             selected: mfr,
+            variant: "dropdown",
           },
         ]}
       />

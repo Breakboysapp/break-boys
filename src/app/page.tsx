@@ -196,13 +196,30 @@ export default async function HomePage({
         searchPlaceholder="Search products by name…"
         initialQuery={params.q ?? ""}
         facets={[
-          { label: "Year", paramKey: "year", values: years, selected: year },
-          { label: "Sport", paramKey: "sport", values: sports, selected: sport },
+          // Sport stays as chips — only 3-4 main sports, low cardinality,
+          // worth eyeballing inline. Year + Manufacturer have more values
+          // and benefit from being collapsed into dropdowns so the page
+          // doesn't dedicate three full rows to filters.
+          {
+            label: "Sport",
+            paramKey: "sport",
+            values: sports,
+            selected: sport,
+            variant: "chips",
+          },
+          {
+            label: "Year",
+            paramKey: "year",
+            values: years,
+            selected: year,
+            variant: "dropdown",
+          },
           {
             label: "Manufacturer",
             paramKey: "mfr",
             values: manufacturers,
             selected: mfr,
+            variant: "dropdown",
           },
         ]}
       />
