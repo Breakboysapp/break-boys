@@ -31,6 +31,7 @@ model Product {
   breaks              UserBreak[]
   mixers              MixerProduct[]
   favorites           UserFavoriteProduct[]
+  formats             ProductFormat[]
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @default(now()) @updatedAt
 
@@ -139,6 +140,43 @@ model UserCard {
   card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@unique([userId, cardId])
+}
+
+// Box formats for a product — Hobby, Jumbo, Mega Box, Super Jumbo,
+// Breaker Delight, Retail, etc. A single Product (e.g. "2025 Bowman
+// Draft Baseball") has multiple formats with different box prices,
+// pack configurations, auto counts, and (eventually) different
+// pull-eligible card subsets.
+//
+// Phase 1 (now): metadata only — so users can compare prices + odds
+// and read exclusivity notes ("Mega Box: 2 exclusive Chrome packs").
+// Card-level format restrictions come in Phase 2.
+model ProductFormat {
+  id              String   @id @default(cuid())
+  productId       String
+  // Display name. Free-text rather than enum so unusual formats
+  // ("Hanger Box", "Vending Box", "FOTL", "Choice Box") fit without
+  // a schema change.
+  name            String
+  // Per-buyer slot price for one full box of this format (cents).
+  boxPriceCents   Int?
+  packsPerBox     Int?
+  cardsPerPack    Int?
+  // Float because expected autos can be fractional ("avg 1.5 per
+  // box for some retail formats").
+  autosPerBox     Float?
+  // Format-specific exclusives, odds caveats, or breaker notes.
+  // Free-text — surfaced as a small italics line on the format card.
+  notes           String?
+  // Sort order on the product page. Lower = leftmost. Tie-break by
+  // boxPriceCents ascending, then by createdAt.
+  position        Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, name])
+  @@index([productId])
 }
 
 // Per-user product favorites — pinned products that show up under the

@@ -10,6 +10,7 @@ import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
 import FavoriteButton from "./FavoriteButton";
+import ProductFormatsEditor from "./ProductFormatsEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,13 @@ export default async function ProductPage({
           variation: true,
           marketValueCents: true,
         },
+      },
+      formats: {
+        orderBy: [
+          { position: "asc" },
+          { boxPriceCents: "asc" },
+          { createdAt: "asc" },
+        ],
       },
       _count: { select: { cards: true } },
     },
@@ -111,6 +119,24 @@ export default async function ProductPage({
           </div>
         )}
       </div>
+
+      {/* Box formats — Hobby / Jumbo / Mega Box / Super Jumbo / etc.
+          Available regardless of whether the checklist is loaded yet,
+          so a buyer can plan around announced format pricing even on
+          Coming Soon products. */}
+      <ProductFormatsEditor
+        productId={product.id}
+        initialFormats={product.formats.map((f) => ({
+          id: f.id,
+          name: f.name,
+          boxPriceCents: f.boxPriceCents,
+          packsPerBox: f.packsPerBox,
+          cardsPerPack: f.cardsPerPack,
+          autosPerBox: f.autosPerBox,
+          notes: f.notes,
+          position: f.position,
+        }))}
+      />
 
       {isComingSoon ? (
         <ComingSoon productId={product.id} />
