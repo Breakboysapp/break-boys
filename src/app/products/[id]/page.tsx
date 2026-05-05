@@ -141,7 +141,6 @@ export default async function ProductPage({
         <>
           {hasTeams && (
             <section className="space-y-3">
-              <SectionHeader label="Pricing" />
               <TeamPriceEditor
                 productId={product.id}
                 initialBoxPriceCents={product.boxPriceCents}
@@ -221,14 +220,3 @@ function ComingSoon({ productId }: { productId: string }) {
   );
 }
 
-function SectionHeader({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="h-px flex-1 bg-slate-200" />
-      <h2 className="text-[11px] font-bold uppercase tracking-tight-2 text-slate-500">
-        {label}
-      </h2>
-      <span className="h-px flex-1 bg-slate-200" />
-    </div>
-  );
-}
