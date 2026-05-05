@@ -64,36 +64,36 @@ export async function GET(req: NextRequest) {
     ? TRACKED_SLUGS.filter((s) => s.slug === filter)
     : TRACKED_SLUGS;
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (s: string) => controller.enqueue(encoder.encode(s + "\n"));
-      const prisma = new PrismaClient();
-      try {
-        send(
-          `Refreshing ${slugs.length} set${slugs.length === 1 ? "" : "s"}…`,
-        );
-        send("");
-        for (const meta of slugs) {
-          // skipPop: pop fetch hangs from Vercel's serverless egress
-          // (Cloudflare bot-walls the SCP host even via curl). Pop
-          // counts get backfilled later via the local CLI script which
-          // doesn't hit the same restriction. Cron stays fast +
-          // unblocked, prices stay fresh, gem rates are best-effort.
-          await importSet(prisma, meta, send, { skipPop: true });
-          send("");
-        }
-        send("All sets refreshed.");
-      } catch (err) {
-        send(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        await prisma.$disconnect();
-        controller.close();
-      }
-    },
-  });
+  // Buffered (non-streaming) response. Earlier we tried ReadableStream +
+  // text/plain so progress would show live, but Vercel's serverless
+  // runtime buffers the response anyway — browser shows a blank page for
+  // the entire run, then nothing useful at the end. Simpler to collect
+  // every progress line and return them all at once when the import
+  // finishes.
+  const lines: string[] = [];
+  const send = (s: string) => lines.push(s);
+  const prisma = new PrismaClient();
+  try {
+    send(
+      `Refreshing ${slugs.length} set${slugs.length === 1 ? "" : "s"}…`,
+    );
+    send("");
+    for (const meta of slugs) {
+      // skipPop: pop fetch hangs from Vercel's serverless egress
+      // (Cloudflare bot-walls the SCP host even via curl). Pop counts
+      // get backfilled later via the local CLI script which doesn't hit
+      // the same restriction. Cron stays fast + unblocked.
+      await importSet(prisma, meta, send, { skipPop: true });
+      send("");
+    }
+    send("All sets refreshed.");
+  } catch (err) {
+    send(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    await prisma.$disconnect();
+  }
 
-  return new Response(stream, {
+  return new Response(lines.join("\n"), {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
