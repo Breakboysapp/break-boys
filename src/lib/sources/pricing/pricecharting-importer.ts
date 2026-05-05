@@ -7,7 +7,7 @@
  * actual fetch + parse + upsert logic lives here so both paths stay in
  * lockstep.
  */
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   fetchConsoleProducts,
   fetchPopRows,
@@ -152,6 +152,35 @@ export async function importSet(
   result.productId = product.id;
 
   const now = new Date();
+
+  // BULK strategy: 7,500-card sets blow past Vercel's 300s function cap
+  // when each card runs its own findUnique → update/create roundtrip.
+  // Restructured into:
+  //   1. One query to fetch every existing pricechartingId on this product
+  //   2. Classify console rows into "create new" vs "update existing"
+  //   3. createMany() the new ones in chunks (single query each)
+  //   4. update() the existing ones in chunked $transaction batches
+  // This drops total DB roundtrips from O(7500) to O(~150) and brings a
+  // full-set refresh well inside the 300s envelope.
+
+  const existingRows = await prisma.card.findMany({
+    where: { productId: product.id, pricechartingId: { not: null } },
+    select: { id: true, pricechartingId: true },
+  });
+  const existingByPCId = new Map<string, string>();
+  for (const r of existingRows) {
+    if (r.pricechartingId) existingByPCId.set(r.pricechartingId, r.id);
+  }
+
+  // Shared shape for both new-row inserts (createMany) and existing-row
+  // updates. createMany requires the unchecked variant (foreign keys as
+  // raw IDs, not nested connect objects), which matches what we're
+  // building anyway.
+  type CardCreate = Prisma.CardCreateManyInput;
+  type CardUpdate = Prisma.CardUncheckedUpdateInput;
+  const toCreate: CardCreate[] = [];
+  const toUpdate: Array<{ id: string; data: CardUpdate }> = [];
+
   for (const c of consoleRows) {
     const parsed = parseProductName(c.productName);
     if (!parsed.playerName || !parsed.cardNumber) {
@@ -159,12 +188,7 @@ export async function importSet(
       continue;
     }
     const pop = popByLabel.get(c.productName);
-    const existing = await prisma.card.findUnique({
-      where: { pricechartingId: c.id },
-      select: { id: true },
-    });
-    const data = {
-      productId: product.id,
+    const sharedFields = {
       playerName: parsed.playerName,
       cardNumber: parsed.cardNumber,
       variation: parsed.variation,
@@ -183,17 +207,43 @@ export async function importSet(
       popTotal: pop?.popTotal ?? null,
       popUpdatedAt: pop ? now : null,
     };
-    if (existing) {
-      // Don't clobber team — user may have set it via CSV upload.
-      await prisma.card.update({ where: { id: existing.id }, data });
-      result.updated++;
+    const existingId = existingByPCId.get(c.id);
+    if (existingId) {
+      // Update path. Don't write team — never clobber an existing
+      // manually-set team value. Don't write productId either; an
+      // existing row already has the right one.
+      toUpdate.push({ id: existingId, data: sharedFields });
     } else {
-      await prisma.card.create({ data: { ...data, team: "—" } });
-      result.created++;
+      // Insert path. team="—" placeholder fills the required column;
+      // CSV checklist uploads or future per-card /api/product calls
+      // populate real teams.
+      toCreate.push({ ...sharedFields, productId: product.id, team: "—" });
     }
-    if ((result.created + result.updated) % 250 === 0) {
+  }
+
+  // Bulk insert in 500-row chunks (Postgres max parameter count safety).
+  for (let i = 0; i < toCreate.length; i += 500) {
+    const chunk = toCreate.slice(i, i + 500);
+    await prisma.card.createMany({ data: chunk, skipDuplicates: true });
+    result.created += chunk.length;
+    progress(`[${meta.slug}]   created ${result.created}/${toCreate.length}`);
+  }
+
+  // Bulk update in 100-row chunks. Updates can't be expressed as one
+  // bulk SQL like createMany (each row has different values), so we
+  // batch as $transaction([update, update, …]) which still cuts
+  // roundtrip overhead vs. awaiting one at a time.
+  for (let i = 0; i < toUpdate.length; i += 100) {
+    const chunk = toUpdate.slice(i, i + 100);
+    await prisma.$transaction(
+      chunk.map((u) =>
+        prisma.card.update({ where: { id: u.id }, data: u.data }),
+      ),
+    );
+    result.updated += chunk.length;
+    if (result.updated % 500 === 0 || i + 100 >= toUpdate.length) {
       progress(
-        `[${meta.slug}]   …${result.created} created, ${result.updated} updated`,
+        `[${meta.slug}]   updated ${result.updated}/${toUpdate.length}`,
       );
     }
   }
