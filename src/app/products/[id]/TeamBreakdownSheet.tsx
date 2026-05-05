@@ -167,7 +167,7 @@ export default function TeamBreakdownSheet({
         per-row bg-ink / bg-white fills behind every cell so the
         rendering stays solid even if a cell ever does have a gap.
       */}
-      <div className="isolate max-h-[640px] overflow-auto overscroll-contain">
+      <div className="isolate max-h-[640px] overflow-auto overscroll-none">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-50 bg-ink text-white">
             <tr className="bg-ink">
@@ -453,7 +453,7 @@ function PlayerSubBreakdown({
         thead text was leaking ABOVE the parent thead because both stacking
         contexts were at the same level.
       */}
-      <div className="isolate max-h-[360px] overflow-auto overscroll-contain rounded border border-slate-200 bg-slate-50">
+      <div className="isolate max-h-[360px] overflow-auto overscroll-none rounded border border-slate-200 bg-slate-50">
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 z-20 bg-bone">
             <tr className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
