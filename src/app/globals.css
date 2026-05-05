@@ -8,6 +8,18 @@
 
 html {
   font-feature-settings: "ss01", "cv11";
+  /*
+    Lock the page's over-scroll on both axes. Without this, pulling at
+    the far edge of any horizontally-scrolling element (the score
+    card's sticky left columns are the ones that do this) causes iOS
+    to rubber-band the whole page, which manifests as the entire
+    scorecard section "lifting" up when the user touches the # /
+    TEAM column and drags. overscroll-behavior: none keeps the
+    gesture inside the table's own scroll container — gesture
+    starting on a sticky cell stays contained instead of escaping
+    to the page level.
+  */
+  overscroll-behavior: none;
 }
 
 body {
@@ -16,6 +28,7 @@ body {
   font-family: theme('fontFamily.display');
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
 }
 
 /* Tighter, more confident headings — Fanatics-style. */
