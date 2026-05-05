@@ -233,6 +233,79 @@ export default async function MockSportButtonsPage() {
         </div>
       </section>
 
+      {/* Option E: Loud sport colors WITH prominent icons */}
+      <section className="space-y-3">
+        <Caption
+          letter="E"
+          title="Loud sport colors + prominent icon"
+          notes="Same loud color palette as Option A, but with a big sport-themed SVG (football, basketball, baseball) anchored to the right side of each card. The icon dominates the visual; the sport name and CTA sit beside it."
+        />
+        <div className="grid gap-3 sm:grid-cols-3">
+          {SPORTS.map((s) => (
+            <Link
+              key={`E-${s.sport}`}
+              href={`/?sport=${encodeURIComponent(s.sport)}`}
+              className={`group relative flex h-36 items-center gap-4 overflow-hidden rounded-2xl p-5 text-white transition hover:-translate-y-0.5 hover:shadow-xl ${
+                s.sport === "NFL"
+                  ? "bg-emerald-600 hover:bg-emerald-500"
+                  : s.sport === "NBA"
+                    ? "bg-orange-500 hover:bg-orange-400"
+                    : "bg-blue-700 hover:bg-blue-600"
+              }`}
+            >
+              <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-between self-stretch">
+                <span className="text-[11px] font-bold uppercase tracking-tight-2 opacity-80">
+                  {countBySport.get(s.sport) ?? 0} products
+                </span>
+                <div>
+                  <div className="text-3xl font-black leading-none tracking-tight-3">
+                    {s.abbr}
+                  </div>
+                  <div className="mt-2 text-xs font-bold uppercase tracking-tight-2">
+                    Break {s.sport} Products
+                    <span aria-hidden className="ml-1 inline-block transition group-hover:translate-x-1">
+                      →
+                    </span>
+                  </div>
+                </div>
+              </div>
+              {/* Big sport icon, anchored right. Slight oversize + clip
+                  so the icon feels like it's pushing out of the card. */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -right-4 top-1/2 h-32 w-32 -translate-y-1/2 text-white/25 transition group-hover:text-white/35"
+              >
+                {s.sport === "NFL" && (
+                  <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="3">
+                    <ellipse cx="50" cy="50" rx="40" ry="24" transform="rotate(-25 50 50)" />
+                    <line x1="38" y1="42" x2="62" y2="58" />
+                    <line x1="34" y1="48" x2="44" y2="52" />
+                    <line x1="46" y1="46" x2="54" y2="54" />
+                    <line x1="56" y1="50" x2="66" y2="56" />
+                  </svg>
+                )}
+                {s.sport === "NBA" && (
+                  <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="3">
+                    <circle cx="50" cy="50" r="38" />
+                    <path d="M12 50 H 88" />
+                    <path d="M50 12 V 88" />
+                    <path d="M22 28 Q 50 50, 22 72" />
+                    <path d="M78 28 Q 50 50, 78 72" />
+                  </svg>
+                )}
+                {s.sport === "MLB" && (
+                  <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="3">
+                    <circle cx="50" cy="50" r="38" />
+                    <path d="M22 28 Q 50 50, 22 72" strokeDasharray="4 3" />
+                    <path d="M78 28 Q 50 50, 78 72" strokeDasharray="4 3" />
+                  </svg>
+                )}
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
       <footer className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
         <p>
           Tell me which letter (or hybrid — e.g. &quot;A but with B&apos;s
