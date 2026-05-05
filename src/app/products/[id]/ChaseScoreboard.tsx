@@ -24,15 +24,22 @@ export type ChaseCard = {
 type PlayerRollup = {
   playerName: string;
   cardCount: number;
-  /** Highest PSA 10 across this player's cards. The "best chase" number. */
+  /** Highest PSA 10 across this player's cards. The "best chase" number —
+   *  this is what you'd actually realize on the trophy pull, vs. the
+   *  earlier "total upside" metric which assumed you got every parallel. */
   topPsa10Cents: number;
   /** Same card's variation label (for "Refractor", "Red Sapphire", etc.). */
   topVariation: string | null;
   topCardNumber: string;
   topImageUrl: string | null;
-  /** Sum of PSA 10 values across all of this player's cards. The "if you
-   *  pulled every parallel, total upside" number. */
-  totalPsa10Cents: number;
+  /** 0-100 desirability score, normalized log-scale on topPsa10Cents
+   *  against the max in the set. The top player is pinned at 100; the
+   *  rest slide down on a log curve so order-of-magnitude differences
+   *  read cleanly without lower ranks getting squashed to single digits.
+   *  Log scale because PSA 10 prices in a Topps Chrome set span 4+ orders
+   *  of magnitude (top chase $16k, base rookies $5) — linear normalization
+   *  gives most players a 1 or 2 / 100 which is useless for comparison. */
+  valueScore: number;
   /** Combined PSA + CGC pop counts — sum of all of this player's cards. */
   popG10Sum: number;
   popTotalSum: number;
@@ -54,7 +61,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
         topVariation: null,
         topCardNumber: "",
         topImageUrl: null,
-        totalPsa10Cents: 0,
+        valueScore: 0,
         popG10Sum: 0,
         popTotalSum: 0,
         gemRate: null,
@@ -62,7 +69,6 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       m.set(c.playerName, row);
     }
     row.cardCount++;
-    row.totalPsa10Cents += psa10;
     if (psa10 > row.topPsa10Cents) {
       row.topPsa10Cents = psa10;
       row.topVariation = c.variation;
@@ -72,19 +78,32 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
     if (c.popG10 != null) row.popG10Sum += c.popG10;
     if (c.popTotal != null) row.popTotalSum += c.popTotal;
   }
-  for (const row of m.values()) {
+  // Compute value scores after the per-player rollup. Top player = 100,
+  // floor pinned at 1 to keep low-tier players visible but tiny.
+  const players = [...m.values()];
+  const maxTop = Math.max(...players.map((p) => p.topPsa10Cents));
+  if (maxTop > 0) {
+    const logMax = Math.log(maxTop);
+    for (const p of players) {
+      if (p.topPsa10Cents <= 0) {
+        p.valueScore = 0;
+      } else {
+        const ratio = Math.log(p.topPsa10Cents) / logMax;
+        p.valueScore = Math.max(1, Math.round(ratio * 100));
+      }
+    }
+  }
+  for (const row of players) {
     row.gemRate =
       row.popTotalSum > 0 ? row.popG10Sum / row.popTotalSum : null;
   }
-  return [...m.values()].sort(
-    (a, b) => b.totalPsa10Cents - a.totalPsa10Cents,
-  );
+  return players.sort((a, b) => b.topPsa10Cents - a.topPsa10Cents);
 }
 
 export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
   const players = useMemo(() => rollupByPlayer(cards), [cards]);
   const top20 = players.slice(0, 20);
-  const hasAnyValue = top20.some((p) => p.totalPsa10Cents > 0);
+  const hasAnyValue = top20.some((p) => p.topPsa10Cents > 0);
   const hasAnyPop = top20.some((p) => p.popTotalSum > 0);
 
   if (!hasAnyValue) {
@@ -121,7 +140,15 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto overscroll-none">
+      {/*
+        overscroll-x-contain (NOT overscroll-none) — earlier we used
+        overscroll-none everywhere to kill iOS rubber-band, but that
+        also blocked vertical mouse-wheel events from passing through
+        to the page when the cursor sat over the table on desktop.
+        x-contain isolates only the horizontal axis, so vertical wheel
+        scroll bubbles up to the page like normal.
+      */}
+      <div className="overflow-x-auto overscroll-x-contain">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead className="bg-ink text-white">
             <tr>
@@ -137,8 +164,11 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
               <th className="w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
                 Top PSA 10
               </th>
-              <th className="w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
-                Total upside
+              <th
+                className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                title="Value Score: 0-100 desirability rating, log-normalized on this set's top PSA 10 price. The chase player is pinned at 100; everyone else slides relative to them."
+              >
+                Score
               </th>
               <th
                 className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
@@ -199,12 +229,21 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                       : <span className="text-slate-300">—</span>}
                   </td>
                   <td
-                    className="px-3 py-2 text-right tabular-nums text-slate-700"
-                    title={`Sum of PSA 10 prices across all ${p.cardCount} of this player's cards in the set.`}
+                    className="px-3 py-2 text-right tabular-nums"
+                    title={`${p.valueScore}/100. Log-normalized against the top player's PSA 10 in this set.`}
                   >
-                    {p.totalPsa10Cents > 0
-                      ? formatUsd(p.totalPsa10Cents)
-                      : <span className="text-slate-300">—</span>}
+                    {p.valueScore > 0 ? (
+                      <>
+                        <span className="text-base font-extrabold text-ink">
+                          {p.valueScore}
+                        </span>
+                        <span className="text-[10px] font-medium text-slate-400">
+                          /100
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {p.gemRate != null ? (
