@@ -30,6 +30,7 @@ model Product {
   teamPrices          TeamPrice[]
   breaks              UserBreak[]
   mixers              MixerProduct[]
+  favorites           UserFavoriteProduct[]
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @default(now()) @updatedAt
 
@@ -138,4 +139,19 @@ model UserCard {
   card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@unique([userId, cardId])
+}
+
+// Per-user product favorites — pinned products that show up under the
+// /favorites page and the Favorites nav link. Mirrors the UserCard /
+// UserBreak pattern: userId defaults to "local" until real auth lands,
+// at which point we drop the default and the same data flows through.
+model UserFavoriteProduct {
+  id        String   @id @default(cuid())
+  userId    String   @default("local")
+  productId String
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
 }
