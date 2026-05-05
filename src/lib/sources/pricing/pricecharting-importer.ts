@@ -20,6 +20,17 @@ export type SlugMeta = {
   name: string;
   sport: string;
   manufacturer: string;
+  /**
+   * Variation-name regex. Any card whose `variation` matches is dropped
+   * from this set's import — used to surgically exclude cards that PC
+   * lists under one slug but actually belong to a separate product.
+   * Example: 2025 Topps Chrome's listing page includes "[Sapphire]"
+   * variants that are really part of Topps Chrome Sapphire Selections
+   * (a separately-purchased product), so the regular Chrome slug uses
+   * `excludeVariation: /sapphire/i` and we list Sapphire Selections as
+   * its own tracked slug. Same pattern applies in NFL and NBA.
+   */
+  excludeVariation?: RegExp;
 };
 
 /**
@@ -34,6 +45,15 @@ export const TRACKED_SLUGS: SlugMeta[] = [
   {
     slug: "baseball-cards-2025-topps-chrome",
     name: "2025 Topps Chrome Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
+    // PC lumps Sapphire variants under the regular Chrome listing —
+    // strip them; they're tracked separately under the Selections slug.
+    excludeVariation: /sapphire/i,
+  },
+  {
+    slug: "baseball-cards-2025-topps-chrome-sapphire-selections",
+    name: "2025 Topps Chrome Sapphire Selections Baseball",
     sport: "MLB",
     manufacturer: "Topps",
   },
@@ -89,9 +109,27 @@ export async function importSet(
   for (const r of popRows) popByLabel.set(r.cardLabel, r);
 
   progress(`[${meta.slug}] fetching console listing…`);
-  const { products: consoleRows } = await fetchConsoleProducts(meta.slug);
+  const { products: rawRows } = await fetchConsoleProducts(meta.slug);
+  // Apply the per-slug variation filter: drops cards that PC lists under
+  // this slug but actually belong to a different (separately-tracked)
+  // product — Sapphire variants on the regular Chrome page being the
+  // canonical case. Cards with a matching variation are filtered out
+  // before write, so a re-import naturally cleans up any rows from a
+  // previous unfiltered run via the deletion pass below.
+  const consoleRows = meta.excludeVariation
+    ? rawRows.filter((r) => {
+        const v = parseProductName(r.productName).variation ?? "";
+        return !meta.excludeVariation!.test(v);
+      })
+    : rawRows;
   result.consoleRows = consoleRows.length;
-  progress(`[${meta.slug}]   ${consoleRows.length} cards`);
+  if (meta.excludeVariation) {
+    progress(
+      `[${meta.slug}]   ${consoleRows.length} cards (filtered ${rawRows.length - consoleRows.length} matching ${meta.excludeVariation})`,
+    );
+  } else {
+    progress(`[${meta.slug}]   ${consoleRows.length} cards`);
+  }
 
   progress(`[${meta.slug}] writing to DB…`);
   const product = await prisma.product.upsert({
@@ -156,6 +194,27 @@ export async function importSet(
     if ((result.created + result.updated) % 250 === 0) {
       progress(
         `[${meta.slug}]   …${result.created} created, ${result.updated} updated`,
+      );
+    }
+  }
+
+  // Cleanup pass: remove any existing cards on this product whose
+  // variation matches excludeVariation. Catches rows from earlier
+  // unfiltered import runs (e.g. before the Sapphire split landed) so a
+  // re-import surgically drops the now-misclassified data without
+  // requiring a manual cleanup query.
+  if (meta.excludeVariation && product.id) {
+    const stale = await prisma.card.findMany({
+      where: { productId: product.id },
+      select: { id: true, variation: true },
+    });
+    const toDelete = stale
+      .filter((c) => meta.excludeVariation!.test(c.variation ?? ""))
+      .map((c) => c.id);
+    if (toDelete.length > 0) {
+      await prisma.card.deleteMany({ where: { id: { in: toDelete } } });
+      progress(
+        `[${meta.slug}]   cleaned up ${toDelete.length} pre-filter rows`,
       );
     }
   }
