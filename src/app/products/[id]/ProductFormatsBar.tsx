@@ -1,20 +1,22 @@
 "use client";
 
 /**
- * Compact format selector for the product page. One native <select>
- * dropdown lists every format the product comes in (pre-seeded by
- * scripts/seed-all-product-formats.ts based on the product name).
- * Selecting one swaps the small detail line + notes below.
+ * Box-format selector — pill row + stats strip (Option A from
+ * /mock-format-selector review).
  *
- * Native <select> is intentional — gets the system picker on mobile
- * (much better UX than a custom dropdown), zero JS overhead, fully
- * accessible. Whole thing collapses into ~3 vertical lines instead
- * of the 5-card grid the previous editor took.
+ * Each format is a small clickable pill (Hobby / Jumbo / Mega Box /
+ * etc); the active one is filled black, others are outline. Tapping
+ * a pill swaps the inline stats line underneath. Pills wrap to a
+ * second line on narrow screens so even products with 5-6 formats
+ * fit without horizontal scroll.
  *
- * No edit affordance here. Format data is treated as canonical from
- * the seed; if a format needs to change, it changes in the source
- * map (src/lib/product-formats-defaults.ts) and a re-seed updates
- * every affected product.
+ * Notes (per-format exclusivity caveats stored in the DB) are
+ * intentionally NOT rendered — the user wants the bar visually
+ * minimal, just the pill row + the stats line. Notes still live on
+ * the row in case we want to surface them elsewhere later.
+ *
+ * Pattern matches the Active / Coming Soon tab pills already on the
+ * home page — same visual language, same interaction model.
  */
 import { useState } from "react";
 
@@ -24,7 +26,6 @@ type Format = {
   packsPerBox: number | null;
   cardsPerPack: number | null;
   autosPerBox: number | null;
-  notes: string | null;
 };
 
 export default function ProductFormatsBar({
@@ -38,7 +39,7 @@ export default function ProductFormatsBar({
   const current =
     formats.find((f) => f.id === selectedId) ?? formats[0];
 
-  // Tiny inline summary — only renders the parts that have data.
+  // Build a one-line summary from whichever fields are populated.
   const stats: string[] = [];
   if (current.packsPerBox != null && current.cardsPerPack != null) {
     stats.push(
@@ -55,33 +56,32 @@ export default function ProductFormatsBar({
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-center gap-3">
-        <label className="shrink-0 text-[10px] font-bold uppercase tracking-tight-2 text-accent">
-          Box format
-        </label>
-        <select
-          value={current.id}
-          onChange={(e) => setSelectedId(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-ink focus:border-ink focus:outline-none"
-        >
-          {formats.map((f) => (
-            <option key={f.id} value={f.id}>
+      <span className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+        Box format
+      </span>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {formats.map((f) => {
+          const active = f.id === current.id;
+          return (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setSelectedId(f.id)}
+              className={`rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-tight-2 transition ${
+                active
+                  ? "border-ink bg-ink text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-ink"
+              }`}
+            >
               {f.name}
-            </option>
-          ))}
-        </select>
+            </button>
+          );
+        })}
       </div>
-
       {stats.length > 0 && (
-        <div className="mt-2 text-xs tabular-nums text-slate-600">
+        <div className="mt-3 border-t border-slate-100 pt-3 text-xs tabular-nums text-slate-700">
           {stats.join("  ·  ")}
         </div>
-      )}
-
-      {current.notes && (
-        <p className="mt-2 text-xs leading-snug text-slate-500">
-          {current.notes}
-        </p>
       )}
     </section>
   );

@@ -120,7 +120,9 @@ export default async function ProductPage({
           Pre-seeded for every product based on its name pattern
           (src/lib/product-formats-defaults.ts), so users never see
           an empty editor; they just pick the format they care about
-          and read the inline summary + notes. */}
+          and read the inline summary. Notes still live in the DB but
+          aren't surfaced here — kept the bar minimal per the user's
+          ask. */}
       {product.formats.length > 0 && (
         <ProductFormatsBar
           formats={product.formats.map((f) => ({
@@ -129,7 +131,6 @@ export default async function ProductPage({
             packsPerBox: f.packsPerBox,
             cardsPerPack: f.cardsPerPack,
             autosPerBox: f.autosPerBox,
-            notes: f.notes,
           }))}
         />
       )}
