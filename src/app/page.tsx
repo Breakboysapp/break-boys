@@ -72,6 +72,15 @@ export default async function HomePage({
     include: { _count: { select: { cards: true } } },
   });
 
+  // Per-sport product counts for the sport quick-jump row. Uses the
+  // full catalog (active + coming-soon) so the displayed numbers match
+  // what the user gets when they click through to ?sport=X — which
+  // shows whichever tab they're currently on, also drawn from `all`.
+  const countBySport = new Map<string, number>();
+  for (const p of all) {
+    countBySport.set(p.sport, (countBySport.get(p.sport) ?? 0) + 1);
+  }
+
   // Tab split semantics:
   //   Active       = cards > 0 (real, browsable checklists)
   //   Coming Soon  = cards = 0 AND release is in the future (or unknown)
@@ -183,6 +192,16 @@ export default async function HomePage({
           </Link>
         </div>
       </div>
+
+      {/* Sport quick-jump cards. Loud sport-color palette (NFL emerald,
+          NBA orange, MLB navy) with a foregrounded sport SVG icon — the
+          variant the user picked from the /mock-sport-buttons review.
+          Each card links to the catalog filtered by that sport; the
+          chosen button highlights when ?sport=X is currently active. */}
+      <SportQuickJumpRow
+        currentSport={sport}
+        countBySport={countBySport}
+      />
 
       <CatalogTabs
         current={tab}
@@ -303,6 +322,126 @@ export default async function HomePage({
  * scroll={false} keeps the page where it is when switching tabs —
  * matches the SearchFilters / SortSelector behavior we already shipped.
  */
+/**
+ * Sport quick-jump cards (Option E from the mock review): loud sport
+ * colors with a big foregrounded sport SVG icon on the right. Each
+ * card filters the catalog to that sport when tapped. When the
+ * current `?sport=X` already matches a button it highlights with a
+ * thicker white border so users know which filter is active.
+ *
+ * Hard-coded to the three majors — adding a 4th button (NHL, Soccer,
+ * etc.) would push the row past 3 columns and break the grid feel.
+ * If we ever want more, switch to a horizontal scroll-snap row.
+ */
+function SportQuickJumpRow({
+  currentSport,
+  countBySport,
+}: {
+  currentSport: string | null;
+  countBySport: Map<string, number>;
+}) {
+  const SPORTS: Array<{ sport: string; abbr: string; bg: string }> = [
+    { sport: "NFL", abbr: "NFL", bg: "bg-emerald-600 hover:bg-emerald-500" },
+    { sport: "NBA", abbr: "NBA", bg: "bg-orange-500 hover:bg-orange-400" },
+    { sport: "MLB", abbr: "MLB", bg: "bg-blue-700 hover:bg-blue-600" },
+  ];
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {SPORTS.map((s) => {
+        const isActive = currentSport === s.sport;
+        return (
+          <Link
+            key={s.sport}
+            href={`/?sport=${encodeURIComponent(s.sport)}`}
+            scroll={false}
+            className={`group relative flex h-32 items-center gap-4 overflow-hidden rounded-2xl p-5 text-white transition hover:-translate-y-0.5 hover:shadow-xl sm:h-36 ${s.bg} ${
+              isActive ? "ring-4 ring-white/60" : ""
+            }`}
+          >
+            <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-between self-stretch">
+              <span className="text-[11px] font-bold uppercase tracking-tight-2 opacity-80">
+                {countBySport.get(s.sport) ?? 0} products
+              </span>
+              <div>
+                <div className="text-3xl font-black leading-none tracking-tight-3 sm:text-4xl">
+                  {s.abbr}
+                </div>
+                <div className="mt-2 text-xs font-bold uppercase tracking-tight-2">
+                  Break {s.sport} Products
+                  <span
+                    aria-hidden
+                    className="ml-1 inline-block transition group-hover:translate-x-1"
+                  >
+                    →
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -right-4 top-1/2 h-32 w-32 -translate-y-1/2 text-white/25 transition group-hover:text-white/40"
+            >
+              {s.sport === "NFL" && (
+                <svg
+                  viewBox="0 0 100 100"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                >
+                  <ellipse
+                    cx="50"
+                    cy="50"
+                    rx="40"
+                    ry="24"
+                    transform="rotate(-25 50 50)"
+                  />
+                  <line x1="38" y1="42" x2="62" y2="58" />
+                  <line x1="34" y1="48" x2="44" y2="52" />
+                  <line x1="46" y1="46" x2="54" y2="54" />
+                  <line x1="56" y1="50" x2="66" y2="56" />
+                </svg>
+              )}
+              {s.sport === "NBA" && (
+                <svg
+                  viewBox="0 0 100 100"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                >
+                  <circle cx="50" cy="50" r="38" />
+                  <path d="M12 50 H 88" />
+                  <path d="M50 12 V 88" />
+                  <path d="M22 28 Q 50 50, 22 72" />
+                  <path d="M78 28 Q 50 50, 78 72" />
+                </svg>
+              )}
+              {s.sport === "MLB" && (
+                <svg
+                  viewBox="0 0 100 100"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                >
+                  <circle cx="50" cy="50" r="38" />
+                  <path
+                    d="M22 28 Q 50 50, 22 72"
+                    strokeDasharray="4 3"
+                  />
+                  <path
+                    d="M78 28 Q 50 50, 78 72"
+                    strokeDasharray="4 3"
+                  />
+                </svg>
+              )}
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function CatalogTabs({
   current,
   activeCount,
