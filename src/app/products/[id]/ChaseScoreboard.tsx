@@ -24,29 +24,50 @@ export type ChaseCard = {
 type PlayerRollup = {
   playerName: string;
   cardCount: number;
-  /** Highest PSA 10 across this player's cards. The "best chase" number —
-   *  this is what you'd actually realize on the trophy pull, vs. the
-   *  earlier "total upside" metric which assumed you got every parallel. */
+  /** Highest PSA 10 across this player's cards. Shown for context as
+   *  "the chase prize," but NOT what drives the rank — a /1 Superfractor
+   *  that sold once and lives in someone's safe is unhelpful for ranking
+   *  by realistic upside. */
   topPsa10Cents: number;
-  /** Same card's variation label (for "Refractor", "Red Sapphire", etc.). */
   topVariation: string | null;
   topCardNumber: string;
   topImageUrl: string | null;
-  /** 0-100 desirability score, normalized log-scale on topPsa10Cents
-   *  against the max in the set. The top player is pinned at 100; the
-   *  rest slide down on a log curve so order-of-magnitude differences
-   *  read cleanly without lower ranks getting squashed to single digits.
-   *  Log scale because PSA 10 prices in a Topps Chrome set span 4+ orders
-   *  of magnitude (top chase $16k, base rookies $5) — linear normalization
-   *  gives most players a 1 or 2 / 100 which is useless for comparison. */
+  /**
+   * Expected value per single random pull from the set, summed across
+   * this player's cards. Each card's contribution is its PSA 10 price
+   * scaled by its realistic pull probability:
+   *
+   *   weight = printRun > 0 ? min(1, printRun / 100) : 1
+   *
+   * - Unnumbered cards (printRun = 0/null): treated as full-weight base
+   *   / refractor variants with reasonable pull rates.
+   * - Numbered cards: weight scales with print run, capped at 1.
+   *   /1 Superfractor → 1% weight (essentially unpullable, near-zero
+   *   contribution). /5 → 5%. /50 → 50%. /100+ → full weight.
+   *
+   * This stops a single /1 chase card from dominating a player's score
+   * when it can never realistically be pulled twice.
+   */
+  expectedValueCents: number;
+  /** 0-100 score, log-normalized expected value against the set max. */
   valueScore: number;
-  /** Combined PSA + CGC pop counts — sum of all of this player's cards. */
+  /** Combined PSA + CGC pop counts — sum of all of this player's cards.
+   *  Pop volume is itself a real value signal: cards being graded in
+   *  bulk indicates collectors think they're worth the grading fees. */
   popG10Sum: number;
   popTotalSum: number;
-  /** Aggregate gem rate. null when no pop data exists yet (new product
-   *  before grading population accumulates). */
   gemRate: number | null;
 };
+
+/**
+ * Realistic-pull weight for a card given its print run. Returns a value
+ * in (0, 1]; anything <= 1 effectively unpullable, anything >= 100
+ * weighted fully.
+ */
+function pullWeight(printRun: number | null): number {
+  if (printRun == null || printRun <= 0) return 1; // unnumbered → full
+  return Math.min(1, printRun / 100);
+}
 
 function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
   const m = new Map<string, PlayerRollup>();
@@ -61,6 +82,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
         topVariation: null,
         topCardNumber: "",
         topImageUrl: null,
+        expectedValueCents: 0,
         valueScore: 0,
         popG10Sum: 0,
         popTotalSum: 0,
@@ -75,20 +97,23 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       row.topCardNumber = c.cardNumber;
       row.topImageUrl = c.imageUrl;
     }
+    row.expectedValueCents += psa10 * pullWeight(c.printRun);
     if (c.popG10 != null) row.popG10Sum += c.popG10;
     if (c.popTotal != null) row.popTotalSum += c.popTotal;
   }
-  // Compute value scores after the per-player rollup. Top player = 100,
-  // floor pinned at 1 to keep low-tier players visible but tiny.
+  // Score is log-normalized expected value against the set max. Log
+  // scale because expected values still span multiple orders of
+  // magnitude even after print-run weighting (top tier in the
+  // thousands of cents, fringe players in the dozens).
   const players = [...m.values()];
-  const maxTop = Math.max(...players.map((p) => p.topPsa10Cents));
-  if (maxTop > 0) {
-    const logMax = Math.log(maxTop);
+  const maxEV = Math.max(...players.map((p) => p.expectedValueCents));
+  if (maxEV > 0) {
+    const logMax = Math.log(maxEV);
     for (const p of players) {
-      if (p.topPsa10Cents <= 0) {
+      if (p.expectedValueCents <= 0) {
         p.valueScore = 0;
       } else {
-        const ratio = Math.log(p.topPsa10Cents) / logMax;
+        const ratio = Math.log(p.expectedValueCents) / logMax;
         p.valueScore = Math.max(1, Math.round(ratio * 100));
       }
     }
@@ -97,7 +122,11 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
     row.gemRate =
       row.popTotalSum > 0 ? row.popG10Sum / row.popTotalSum : null;
   }
-  return players.sort((a, b) => b.topPsa10Cents - a.topPsa10Cents);
+  // Rank by expected value, NOT by topPsa10. The user's complaint is
+  // exactly this: a /1 sold once shouldn't anchor the rank.
+  return players.sort(
+    (a, b) => b.expectedValueCents - a.expectedValueCents,
+  );
 }
 
 export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
@@ -166,7 +195,7 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
               </th>
               <th
                 className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
-                title="Value Score: 0-100 desirability rating, log-normalized on this set's top PSA 10 price. The chase player is pinned at 100; everyone else slides relative to them."
+                title="Value Score: 0-100 expected-value rating. Sums each card's PSA 10 price weighted by realistic pull probability (capped at 1 for printRun ≥ 100, 1% for /1 cards). Log-normalized against the set's top player. A /1 Superfractor doesn't dominate the rank — pullable cards do."
               >
                 Score
               </th>
