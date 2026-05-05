@@ -150,7 +150,19 @@ export default async function ProductPage({
         <ComingSoon productId={product.id} />
       ) : (
         <>
-          {hasTeams && (
+          {/*
+            Render the scoreboard section for any product with a
+            checklist, regardless of whether teams have been wired up.
+            PriceCharting-imported products start with all cards under a
+            placeholder "—" team but already have psa10Cents data, so
+            their Chase Scoreboard is the immediately useful view; the
+            Team Scoreboard renders one degenerate "—" row, which is
+            ugly but doesn't block the user from seeing Chase. Manually-
+            uploaded products with real teams render Team Scoreboard
+            fully and don't show Chase (no PriceCharting data on them
+            yet — fixed when we merge the importer match logic next).
+          */}
+          {!isComingSoon && (
             <section className="space-y-3">
               <TeamPriceEditor
                 productId={product.id}
