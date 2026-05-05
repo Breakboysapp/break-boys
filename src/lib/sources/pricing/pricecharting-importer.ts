@@ -145,23 +145,56 @@ export async function importSet(
   }
 
   progress(`[${meta.slug}] writing to DB…`);
-  const product = await prisma.product.upsert({
+  // Match strategy:
+  //   1. Look for an existing Product with this exact slug as externalId
+  //      (means we've imported it before — link back to that row).
+  //   2. Otherwise look for a manually-created product with matching
+  //      (name, sport). The user often pre-creates products via CSV
+  //      checklist upload before the PC importer runs; rather than
+  //      duplicating into a parallel api:pricecharting product (which
+  //      then loses the manually-set teams), we adopt the existing row
+  //      and tag it with our externalId so future runs match by step 1.
+  //   3. Last resort, create a fresh product.
+  let product = await prisma.product.findUnique({
     where: {
       source_externalId: {
         source: "api:pricecharting",
         externalId: meta.slug,
       },
     },
-    create: {
-      name: meta.name,
-      sport: meta.sport,
-      manufacturer: meta.manufacturer,
-      source: "api:pricecharting",
-      externalId: meta.slug,
-      releaseStatus: "released",
-    },
-    update: {},
   });
+  if (!product) {
+    const candidate = await prisma.product.findFirst({
+      where: { name: meta.name, sport: meta.sport },
+    });
+    if (candidate) {
+      progress(
+        `[${meta.slug}] adopting existing product ${candidate.id} (${candidate.name})`,
+      );
+      product = await prisma.product.update({
+        where: { id: candidate.id },
+        data: {
+          // Tag with our externalId so step-1 catches it next run.
+          // Keep source as-is — it's metadata about how the product
+          // first entered the system, not who currently owns it.
+          externalId: meta.slug,
+          manufacturer: candidate.manufacturer ?? meta.manufacturer,
+        },
+      });
+    }
+  }
+  if (!product) {
+    product = await prisma.product.create({
+      data: {
+        name: meta.name,
+        sport: meta.sport,
+        manufacturer: meta.manufacturer,
+        source: "api:pricecharting",
+        externalId: meta.slug,
+        releaseStatus: "released",
+      },
+    });
+  }
   result.productId = product.id;
 
   const now = new Date();
