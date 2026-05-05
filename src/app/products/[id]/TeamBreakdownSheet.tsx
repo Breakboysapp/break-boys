@@ -353,6 +353,8 @@ export default function TeamBreakdownSheet({
                     <tr className="border-b border-slate-200 bg-slate-50">
                       <td colSpan={totalCols} className="p-0">
                         <PlayerSubBreakdown
+                          teamName={r.name}
+                          totalScore={r.totalScore}
                           buckets={buckets}
                           cards={cardsByTeam.get(r.name) ?? []}
                         />
@@ -421,9 +423,13 @@ export default function TeamBreakdownSheet({
  * visually nests under the parent score-card row.
  */
 function PlayerSubBreakdown({
+  teamName,
+  totalScore,
   buckets,
   cards,
 }: {
+  teamName: string;
+  totalScore: number;
   buckets: AlgorithmBucket[];
   cards: CardLite[];
 }) {
@@ -451,6 +457,30 @@ function PlayerSubBreakdown({
       */}
       <div className="overflow-hidden rounded border border-slate-200 bg-slate-50">
         <div className="max-h-[360px] overflow-y-auto overscroll-none">
+          {/* Sticky team header — stays pinned to the top of the
+              sub-list while you scroll, so you never lose track of
+              which team's players you're looking at. The position:
+              sticky on a div inside the scroll container resolves
+              against this container's top edge. */}
+          <div className="sticky top-0 z-10 flex items-baseline justify-between gap-3 border-b border-slate-200 bg-bone px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+                {teamName}
+              </span>
+              <span className="ml-2 text-[10px] text-slate-500">
+                {players.length}{" "}
+                {players.length === 1 ? "player" : "players"}
+              </span>
+            </div>
+            <div className="shrink-0 text-right">
+              <span className="text-sm font-extrabold tabular-nums text-ink">
+                {totalScore}
+              </span>
+              <span className="ml-1 text-[9px] uppercase tracking-tight-2 text-slate-400">
+                pts
+              </span>
+            </div>
+          </div>
           <ul className="divide-y divide-slate-200">
             {players.map((p) => {
               // Build a short mix summary like "4 Base · 1 Auto · 2 Insert".
