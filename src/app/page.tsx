@@ -388,18 +388,28 @@ function SportQuickJumpRow({
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="3"
+                  strokeLinejoin="miter"
                 >
-                  <ellipse
-                    cx="50"
-                    cy="50"
-                    rx="40"
-                    ry="24"
-                    transform="rotate(-25 50 50)"
-                  />
-                  <line x1="38" y1="42" x2="62" y2="58" />
-                  <line x1="34" y1="48" x2="44" y2="52" />
-                  <line x1="46" y1="46" x2="54" y2="54" />
-                  <line x1="56" y1="50" x2="66" y2="56" />
+                  {/* Football body + laces grouped under one rotation
+                      so the seam stays aligned with the ball. The body
+                      is two circular arcs meeting at sharp tips
+                      (vesica-piscis / lemon shape) — not an ellipse —
+                      so the ball reads as a real football, not an
+                      oval. radius=45 with chord ends at x=14/86 gives
+                      a ~2:1 length:height ratio that matches a real
+                      ball. */}
+                  <g transform="rotate(-25 50 50)">
+                    <path d="M 14 50 A 45 45 0 0 1 86 50 A 45 45 0 0 1 14 50 Z" />
+                    {/* Seam along the long axis, just the visible
+                        middle section. */}
+                    <line x1="38" y1="50" x2="62" y2="50" strokeWidth="2.5" />
+                    {/* Laces — short perpendicular ticks across the seam. */}
+                    <line x1="42" y1="46" x2="42" y2="54" strokeWidth="2.5" />
+                    <line x1="46" y1="45" x2="46" y2="55" strokeWidth="2.5" />
+                    <line x1="50" y1="45" x2="50" y2="55" strokeWidth="2.5" />
+                    <line x1="54" y1="45" x2="54" y2="55" strokeWidth="2.5" />
+                    <line x1="58" y1="46" x2="58" y2="54" strokeWidth="2.5" />
+                  </g>
                 </svg>
               )}
               {s.sport === "NBA" && (
