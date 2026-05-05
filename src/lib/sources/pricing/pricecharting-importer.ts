@@ -57,6 +57,12 @@ export const TRACKED_SLUGS: SlugMeta[] = [
     sport: "MLB",
     manufacturer: "Topps",
   },
+  {
+    slug: "baseball-cards-2025-bowman-draft",
+    name: "2025 Bowman Draft Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
+  },
 ];
 
 export type ImportProgress = (line: string) => void;
@@ -227,6 +233,13 @@ export async function importSet(
       variation: true,
       playerName: true,
       pricechartingId: true,
+      team: true,
+      // Pulled in for snapshot-on-change comparison below — without
+      // these we'd write a snapshot every run, bloating the table
+      // even when nothing moved.
+      ungradedCents: true,
+      psa10Cents: true,
+      psa9Cents: true,
     },
   });
   const norm = (s: string | null | undefined) =>
@@ -243,6 +256,25 @@ export async function importSet(
   const existingByPCId = new Map<string, string>();
   const existingByCardKey = new Map<string, string>();
   const existingByPlayerCard = new Map<string, string>();
+  // Player → team inference. When a PC row has no exact card match,
+  // we use this to attach the new card to the same team as the player's
+  // other (manually-uploaded) cards. Solves the Ohtani sanity case:
+  // PC has 30+ Ohtani parallels, manual upload only has 5; the missing
+  // 25 land here under "Dodgers" instead of an orphan "—" bucket.
+  // First-encountered team wins; cross-team players (traded mid-season)
+  // are rare in a single set and not worth the complexity tonight.
+  const playerToTeam = new Map<string, string>();
+  // Card-id → previous prices, used to decide whether this run should
+  // write a CardPriceSnapshot (only on change). Avoids storing duplicate
+  // rows day-over-day for cards whose prices haven't moved.
+  const previousPrices = new Map<
+    string,
+    {
+      ungradedCents: number | null;
+      psa10Cents: number | null;
+      psa9Cents: number | null;
+    }
+  >();
   let manualCardCount = 0;
   for (const c of existingCards) {
     if (c.pricechartingId) {
@@ -252,11 +284,19 @@ export async function importSet(
     }
     existingByCardKey.set(cardKey(c.cardNumber, c.variation), c.id);
     existingByPlayerCard.set(playerCardKey(c.playerName, c.cardNumber), c.id);
+    if (c.team && c.team !== "—" && !playerToTeam.has(c.playerName)) {
+      playerToTeam.set(c.playerName, c.team);
+    }
+    previousPrices.set(c.id, {
+      ungradedCents: c.ungradedCents,
+      psa10Cents: c.psa10Cents,
+      psa9Cents: c.psa9Cents,
+    });
   }
   const matchOnlyMode = manualCardCount > 0;
   if (matchOnlyMode) {
     progress(
-      `[${meta.slug}] match-only mode (${manualCardCount} manually-uploaded cards on this product — won't create new rows)`,
+      `[${meta.slug}] enrich mode (${manualCardCount} manual cards · ${playerToTeam.size} known players — PC parallels for known players land on inferred teams; unknown players skipped)`,
     );
   }
 
@@ -268,6 +308,9 @@ export async function importSet(
   type CardUpdate = Prisma.CardUncheckedUpdateInput;
   const toCreate: CardCreate[] = [];
   const toUpdate: Array<{ id: string; data: CardUpdate }> = [];
+  // Snapshot rows queued during the matching loop, flushed in one
+  // createMany() after updates land.
+  const snapshotRows: Prisma.CardPriceSnapshotCreateManyInput[] = [];
 
   for (const c of consoleRows) {
     const parsed = parseProductName(c.productName);
@@ -334,12 +377,44 @@ export async function importSet(
           ...popFields,
         },
       });
+      // Snapshot iff any of the three price fields changed since the
+      // last run. Skips writing duplicate rows when nothing moved —
+      // important for the trend computation: zero-delta rows would
+      // dilute moving averages.
+      const prev = previousPrices.get(existingId);
+      const changed =
+        !prev ||
+        prev.ungradedCents !== c.ungradedCents ||
+        prev.psa10Cents !== c.psa10Cents ||
+        prev.psa9Cents !== c.psa9Cents;
+      if (changed) {
+        snapshotRows.push({
+          cardId: existingId,
+          capturedAt: now,
+          ungradedCents: c.ungradedCents,
+          psa10Cents: c.psa10Cents,
+          psa9Cents: c.psa9Cents,
+        });
+      }
     } else if (matchOnlyMode) {
-      // Manual checklist exists; PC has a card the user didn't
-      // upload — likely a Sapphire-leakage parallel or a variant
-      // that isn't in the official Beckett checklist. Skip rather
-      // than create a "—" team orphan.
-      result.skipped++;
+      // Manual checklist exists. PC has a card the user didn't upload
+      // (typical: Refractor/X-Fractor/Pink parallels missing from the
+      // user's Beckett xlsx). If we know what team this PLAYER is on
+      // from their other manually-uploaded cards, fold the PC card in
+      // under that inferred team — Ohtani's 30+ PC parallels join
+      // Dodgers cleanly even though the manual checklist only has 5.
+      // If the player is genuinely unknown (never appeared in manual),
+      // skip — keeps "—" orphans out of the breakdown.
+      const inferredTeam = playerToTeam.get(parsed.playerName);
+      if (inferredTeam) {
+        toCreate.push({
+          ...sharedFields,
+          productId: product.id,
+          team: inferredTeam,
+        });
+      } else {
+        result.skipped++;
+      }
     } else {
       // Fresh product, create normally.
       toCreate.push({ ...sharedFields, productId: product.id, team: "—" });
@@ -352,6 +427,35 @@ export async function importSet(
     await prisma.card.createMany({ data: chunk, skipDuplicates: true });
     result.created += chunk.length;
     progress(`[${meta.slug}]   created ${result.created}/${toCreate.length}`);
+  }
+
+  // Baseline snapshots for newly-created cards. We don't have their
+  // cardId until createMany commits, so re-fetch the just-created rows
+  // by pricechartingId (which we set during the create) and seed one
+  // snapshot apiece. Runs once per import; cost is one query.
+  if (toCreate.length > 0) {
+    const newPCIds = toCreate
+      .map((c) => c.pricechartingId)
+      .filter((x): x is string => Boolean(x));
+    const inserted = await prisma.card.findMany({
+      where: { pricechartingId: { in: newPCIds }, productId: product.id },
+      select: {
+        id: true,
+        pricechartingId: true,
+        ungradedCents: true,
+        psa10Cents: true,
+        psa9Cents: true,
+      },
+    });
+    for (const c of inserted) {
+      snapshotRows.push({
+        cardId: c.id,
+        capturedAt: now,
+        ungradedCents: c.ungradedCents,
+        psa10Cents: c.psa10Cents,
+        psa9Cents: c.psa9Cents,
+      });
+    }
   }
 
   // Bulk update in 100-row chunks. Updates can't be expressed as one
@@ -371,6 +475,17 @@ export async function importSet(
         `[${meta.slug}]   updated ${result.updated}/${toUpdate.length}`,
       );
     }
+  }
+
+  // Flush snapshot rows. createMany in 500-row chunks for the same
+  // Postgres-parameter-cap reason as Card creates. Runs after Card
+  // creates so newly-inserted cards have valid IDs to reference.
+  for (let i = 0; i < snapshotRows.length; i += 500) {
+    const chunk = snapshotRows.slice(i, i + 500);
+    await prisma.cardPriceSnapshot.createMany({ data: chunk });
+  }
+  if (snapshotRows.length > 0) {
+    progress(`[${meta.slug}]   wrote ${snapshotRows.length} price snapshots`);
   }
 
   // Cleanup pass: remove any existing cards on this product whose

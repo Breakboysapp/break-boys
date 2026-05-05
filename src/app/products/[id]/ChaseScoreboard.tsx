@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatUsd } from "@/lib/money";
 
 /**
@@ -132,6 +132,7 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
   const top20 = players.slice(0, 20);
   const hasAnyValue = top20.some((p) => p.topPsa10Cents > 0);
   const hasAnyPop = top20.some((p) => p.popTotalSum > 0);
+  const [explainerOpen, setExplainerOpen] = useState(false);
 
   if (!hasAnyValue) {
     return (
@@ -188,14 +189,21 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
               <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2">
                 Top card
               </th>
-              <th className="w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
-                Top PSA 10
-              </th>
-              <th
-                className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
-                title="Market Score: 0-100 player market index, Card-Ladder style. Blends top PSA 10 (60%, the chase signal that lifts the whole player's market) with median PSA 10 across their cards (40%, the depth / typical-value floor). Log-normalized against the set's max. The /1 Superfractor counts fully — it IS a market signal, not noise."
-              >
-                Score
+              <th className="w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
+                <button
+                  type="button"
+                  onClick={() => setExplainerOpen(true)}
+                  className="inline-flex items-center gap-1 hover:text-accent"
+                  title="What is Market Score?"
+                >
+                  <span>Market Score</span>
+                  <span
+                    aria-hidden
+                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white/40 text-[8px] font-bold text-white/70"
+                  >
+                    i
+                  </span>
+                </button>
               </th>
               <th
                 className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
@@ -250,11 +258,6 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink">
-                    {p.topPsa10Cents > 0
-                      ? formatUsd(p.topPsa10Cents)
-                      : <span className="text-slate-300">—</span>}
-                  </td>
                   <td
                     className="px-3 py-2 text-right tabular-nums"
                     title={`${p.marketScore}/100. Log-normalized against the top player's PSA 10 in this set.`}
@@ -292,6 +295,106 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
             })}
           </tbody>
         </table>
+      </div>
+
+      {explainerOpen && (
+        <MarketScoreExplainer onClose={() => setExplainerOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Tap-the-i explainer for the Market Score column. Same modal pattern
+ * as the bucket-detail popover on TeamBreakdownSheet so the chrome
+ * stays consistent. Closes on Escape, backdrop click, or the X button.
+ */
+function MarketScoreExplainer({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Market Score explainer"
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60"
+      />
+      <div className="relative z-10 m-3 max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+              Chase view · per-player rating
+            </div>
+            <h2 className="mt-1 text-lg font-extrabold leading-tight tracking-tight-3">
+              Market Score
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-ink"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-700">
+          <p>
+            A <strong>0–100 player market index</strong>, modeled after
+            the way Card Ladder builds player indexes — the trophy card
+            isn&apos;t something you&apos;ll personally pull from a break,
+            but its sale price IS a real market signal that lifts the
+            player&apos;s whole market.
+          </p>
+          <div className="rounded-lg border border-slate-200 bg-bone p-3 text-xs">
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
+              Formula
+            </div>
+            <code className="mt-1 block whitespace-pre-wrap font-mono text-[11px] text-ink">
+              blend = log(top PSA 10 + 1) × 0.6
+                  + log(median PSA 10 + 1) × 0.4{"\n"}
+              score = round(blend / set_max_blend × 100)
+            </code>
+          </div>
+          <ul className="space-y-1.5 text-[13px]">
+            <li>
+              <strong>60% top PSA 10</strong> — the chase signal. A
+              Superfractor /1 selling at $50K tells the market this
+              player&apos;s cards are worth more across the board.
+            </li>
+            <li>
+              <strong>40% median PSA 10</strong> — the depth signal.
+              Counterweight so a player with one high-priced /1 and
+              nothing else doesn&apos;t outrank a player with five solid
+              parallels.
+            </li>
+            <li>
+              <strong>Log-normalized</strong> against the set&apos;s top
+              player. Top player = 100, others slide on a log curve so
+              order-of-magnitude differences read cleanly without lower
+              ranks squashed to single digits.
+            </li>
+          </ul>
+          <p className="text-xs text-slate-500">
+            The Gem Rate column adds a separate market-validity signal:
+            collectors only pay grading fees on cards they think are
+            worth grading, so high pop volume = real demand. Both
+            columns are designed to be read together.
+          </p>
+        </div>
       </div>
     </div>
   );
