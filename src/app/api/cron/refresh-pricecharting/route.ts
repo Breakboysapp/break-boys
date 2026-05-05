@@ -28,7 +28,11 @@ import {
 } from "@/lib/sources/pricing/pricecharting-importer";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600; // 10 minutes — full multi-set refresh
+// Vercel Hobby plan caps serverless functions at 300s. A single full
+// Topps Chrome import runs ~3 min so this fits with margin. If
+// TRACKED_SLUGS ever grows past what fits in 300s, split into per-set
+// cron entries (one schedule per slug) rather than one omnibus cron.
+export const maxDuration = 300;
 
 function isAuthorized(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET;
