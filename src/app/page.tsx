@@ -317,15 +317,18 @@ export default async function HomePage({
  * matches the SearchFilters / SortSelector behavior we already shipped.
  */
 /**
- * Sport quick-jump cards (Option E from the mock review): loud sport
- * colors with a big foregrounded sport SVG icon on the right. Each
- * card filters the catalog to that sport when tapped. When the
- * current `?sport=X` already matches a button it highlights with a
- * thicker white border so users know which filter is active.
+ * Sport quick-jump cards — brand theme (Option B from mock review).
  *
- * Hard-coded to the three majors — adding a 4th button (NHL, Soccer,
- * etc.) would push the row past 3 columns and break the grid feel.
- * If we ever want more, switch to a horizontal scroll-snap row.
+ * All three cards share the same dark-on-red treatment so the row
+ * reads as a coherent set rather than three competing colors. Big
+ * sport abbreviation (NFL / NBA / MLB), product count, CTA, and a
+ * single red diagonal accent in the corner that's the only color
+ * variation on the card. No oversize sport icons — those felt loud
+ * and broke the rest of the page's restrained palette.
+ *
+ * The active sport filter (?sport=X already in the URL) gets a red
+ * border instead of the default white-fade, so the user always knows
+ * which one is selected.
  */
 function SportQuickJumpRow({
   currentSport,
@@ -334,11 +337,11 @@ function SportQuickJumpRow({
   currentSport: string | null;
   countBySport: Map<string, number>;
 }) {
-  const SPORTS: Array<{ sport: string; abbr: string; bg: string }> = [
-    { sport: "NFL", abbr: "NFL", bg: "bg-emerald-600 hover:bg-emerald-500" },
-    { sport: "NBA", abbr: "NBA", bg: "bg-orange-500 hover:bg-orange-400" },
-    { sport: "MLB", abbr: "MLB", bg: "bg-blue-700 hover:bg-blue-600" },
-  ];
+  const SPORTS = [
+    { sport: "NFL", abbr: "NFL" },
+    { sport: "NBA", abbr: "NBA" },
+    { sport: "MLB", abbr: "MLB" },
+  ] as const;
 
   return (
     <div className="grid gap-3 sm:grid-cols-3">
@@ -349,95 +352,37 @@ function SportQuickJumpRow({
             key={s.sport}
             href={`/?sport=${encodeURIComponent(s.sport)}`}
             scroll={false}
-            className={`group relative flex h-32 items-center gap-4 overflow-hidden rounded-2xl p-5 text-white transition hover:-translate-y-0.5 hover:shadow-xl sm:h-36 ${s.bg} ${
-              isActive ? "ring-4 ring-white/60" : ""
+            className={`group relative flex h-28 flex-col justify-between overflow-hidden rounded-2xl border bg-ink p-5 text-white transition hover:-translate-y-0.5 hover:shadow-xl sm:h-32 ${
+              isActive
+                ? "border-accent shadow-lg"
+                : "border-white/10 hover:border-accent"
             }`}
           >
-            <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-between self-stretch">
-              <span className="text-[11px] font-bold uppercase tracking-tight-2 opacity-80">
-                {countBySport.get(s.sport) ?? 0} products
-              </span>
-              <div>
-                <div className="text-3xl font-black leading-none tracking-tight-3 sm:text-4xl">
-                  {s.abbr}
-                </div>
-                <div className="mt-2 text-xs font-bold uppercase tracking-tight-2">
-                  Break {s.sport} Products
-                  <span
-                    aria-hidden
-                    className="ml-1 inline-block transition group-hover:translate-x-1"
-                  >
-                    →
-                  </span>
-                </div>
-              </div>
-            </div>
+            {/* Red diagonal corner accent — the only color in the
+                card. Sized so it reads as a deliberate brand mark
+                rather than decoration. */}
             <div
               aria-hidden
-              className="pointer-events-none absolute -right-4 top-1/2 h-32 w-32 -translate-y-1/2 text-white/25 transition group-hover:text-white/40"
-            >
-              {s.sport === "NFL" && (
-                <svg
-                  viewBox="0 0 100 100"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinejoin="miter"
-                >
-                  {/* Football body + laces grouped under one rotation
-                      so the seam stays aligned with the ball. The body
-                      is two circular arcs meeting at sharp tips
-                      (vesica-piscis / lemon shape) — not an ellipse —
-                      so the ball reads as a real football, not an
-                      oval. radius=45 with chord ends at x=14/86 gives
-                      a ~2:1 length:height ratio that matches a real
-                      ball. */}
-                  <g transform="rotate(-25 50 50)">
-                    <path d="M 14 50 A 45 45 0 0 1 86 50 A 45 45 0 0 1 14 50 Z" />
-                    {/* Seam along the long axis, just the visible
-                        middle section. */}
-                    <line x1="38" y1="50" x2="62" y2="50" strokeWidth="2.5" />
-                    {/* Laces — short perpendicular ticks across the seam. */}
-                    <line x1="42" y1="46" x2="42" y2="54" strokeWidth="2.5" />
-                    <line x1="46" y1="45" x2="46" y2="55" strokeWidth="2.5" />
-                    <line x1="50" y1="45" x2="50" y2="55" strokeWidth="2.5" />
-                    <line x1="54" y1="45" x2="54" y2="55" strokeWidth="2.5" />
-                    <line x1="58" y1="46" x2="58" y2="54" strokeWidth="2.5" />
-                  </g>
-                </svg>
-              )}
-              {s.sport === "NBA" && (
-                <svg
-                  viewBox="0 0 100 100"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                >
-                  <circle cx="50" cy="50" r="38" />
-                  <path d="M12 50 H 88" />
-                  <path d="M50 12 V 88" />
-                  <path d="M22 28 Q 50 50, 22 72" />
-                  <path d="M78 28 Q 50 50, 78 72" />
-                </svg>
-              )}
-              {s.sport === "MLB" && (
-                <svg
-                  viewBox="0 0 100 100"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                >
-                  <circle cx="50" cy="50" r="38" />
-                  <path
-                    d="M22 28 Q 50 50, 22 72"
-                    strokeDasharray="4 3"
-                  />
-                  <path
-                    d="M78 28 Q 50 50, 78 72"
-                    strokeDasharray="4 3"
-                  />
-                </svg>
-              )}
+              className="pointer-events-none absolute -right-12 -top-12 h-28 w-28 rotate-45 bg-accent opacity-90 transition group-hover:opacity-100"
+            />
+
+            <div className="relative flex items-baseline justify-between">
+              <span className="text-3xl font-black leading-none tracking-tight-3 sm:text-4xl">
+                {s.abbr}
+              </span>
+              <span className="text-[10px] font-bold uppercase tracking-tight-2 text-white/50">
+                {countBySport.get(s.sport) ?? 0} products
+              </span>
+            </div>
+
+            <div className="relative text-xs font-bold uppercase tracking-tight-2">
+              Break {s.sport} Products
+              <span
+                aria-hidden
+                className="ml-1 inline-block text-accent transition group-hover:translate-x-1"
+              >
+                →
+              </span>
             </div>
           </Link>
         );
