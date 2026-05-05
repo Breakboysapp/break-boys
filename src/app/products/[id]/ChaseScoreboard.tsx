@@ -24,53 +24,48 @@ export type ChaseCard = {
 type PlayerRollup = {
   playerName: string;
   cardCount: number;
-  /** Highest PSA 10 across this player's cards. Shown for context as
-   *  "the chase prize," but NOT what drives the rank — a /1 Superfractor
-   *  that sold once and lives in someone's safe is unhelpful for ranking
-   *  by realistic upside. */
+  /** Highest PSA 10 across this player's cards. Drives the score —
+   *  Card Ladder's player-index logic: a /1 Superfractor selling for
+   *  $50k IS a market signal that lifts the player's whole market,
+   *  even if you'll never pull that exact card. The chase prize tells
+   *  you what collectors will pay at the top end, which informs what
+   *  every other card by that player is worth. */
   topPsa10Cents: number;
   topVariation: string | null;
   topCardNumber: string;
   topImageUrl: string | null;
-  /**
-   * Expected value per single random pull from the set, summed across
-   * this player's cards. Each card's contribution is its PSA 10 price
-   * scaled by its realistic pull probability:
-   *
-   *   weight = printRun > 0 ? min(1, printRun / 100) : 1
-   *
-   * - Unnumbered cards (printRun = 0/null): treated as full-weight base
-   *   / refractor variants with reasonable pull rates.
-   * - Numbered cards: weight scales with print run, capped at 1.
-   *   /1 Superfractor → 1% weight (essentially unpullable, near-zero
-   *   contribution). /5 → 5%. /50 → 50%. /100+ → full weight.
-   *
-   * This stops a single /1 chase card from dominating a player's score
-   * when it can never realistically be pulled twice.
-   */
-  expectedValueCents: number;
-  /** 0-100 score, log-normalized expected value against the set max. */
-  valueScore: number;
-  /** Combined PSA + CGC pop counts — sum of all of this player's cards.
-   *  Pop volume is itself a real value signal: cards being graded in
-   *  bulk indicates collectors think they're worth the grading fees. */
+  /** Median PSA 10 across the player's priced cards. The "typical
+   *  card" floor — counterweight to topPsa10Cents so a player with
+   *  one high-priced /1 and nothing else doesn't dominate over a
+   *  player with depth (multiple solid parallels). */
+  medianPsa10Cents: number;
+  /** 0-100 market score. Log-normalized against the set's max. Combines
+   *  topPsa10 (60% — chase signal) and medianPsa10 (40% — depth) so
+   *  both headline value AND breadth contribute. */
+  marketScore: number;
+  /** Combined PSA + CGC pop counts — sum across player's cards. Pop
+   *  volume is its own market signal: collectors only pay grading fees
+   *  on cards they think are worth grading. Gem rate is shown in its
+   *  own column so users can read both signals independently. */
   popG10Sum: number;
   popTotalSum: number;
   gemRate: number | null;
 };
 
-/**
- * Realistic-pull weight for a card given its print run. Returns a value
- * in (0, 1]; anything <= 1 effectively unpullable, anything >= 100
- * weighted fully.
- */
-function pullWeight(printRun: number | null): number {
-  if (printRun == null || printRun <= 0) return 1; // unnumbered → full
-  return Math.min(1, printRun / 100);
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
-  const m = new Map<string, PlayerRollup>();
+  const m = new Map<
+    string,
+    PlayerRollup & { _psa10s: number[] }
+  >();
   for (const c of cards) {
     const psa10 = c.psa10Cents ?? 0;
     let row = m.get(c.playerName);
@@ -82,51 +77,54 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
         topVariation: null,
         topCardNumber: "",
         topImageUrl: null,
-        expectedValueCents: 0,
-        valueScore: 0,
+        medianPsa10Cents: 0,
+        marketScore: 0,
         popG10Sum: 0,
         popTotalSum: 0,
         gemRate: null,
+        _psa10s: [],
       };
       m.set(c.playerName, row);
     }
     row.cardCount++;
+    if (psa10 > 0) row._psa10s.push(psa10);
     if (psa10 > row.topPsa10Cents) {
       row.topPsa10Cents = psa10;
       row.topVariation = c.variation;
       row.topCardNumber = c.cardNumber;
       row.topImageUrl = c.imageUrl;
     }
-    row.expectedValueCents += psa10 * pullWeight(c.printRun);
     if (c.popG10 != null) row.popG10Sum += c.popG10;
     if (c.popTotal != null) row.popTotalSum += c.popTotal;
   }
-  // Score is log-normalized expected value against the set max. Log
-  // scale because expected values still span multiple orders of
-  // magnitude even after print-run weighting (top tier in the
-  // thousands of cents, fringe players in the dozens).
+
   const players = [...m.values()];
-  const maxEV = Math.max(...players.map((p) => p.expectedValueCents));
-  if (maxEV > 0) {
-    const logMax = Math.log(maxEV);
+  // Compute median across each player's priced cards.
+  for (const p of players) p.medianPsa10Cents = median(p._psa10s);
+
+  // Composite market score: 60% top + 40% median, both log-scaled,
+  // normalized against the set's max blend. Log because PSA 10 prices
+  // span 4+ orders of magnitude — linear normalization squashes the
+  // middle to single digits. Floor at 1 to keep dim players visible.
+  const blend = (top: number, mid: number) =>
+    Math.log(top + 1) * 0.6 + Math.log(mid + 1) * 0.4;
+  const maxBlend = Math.max(
+    ...players.map((p) => blend(p.topPsa10Cents, p.medianPsa10Cents)),
+  );
+  if (maxBlend > 0) {
     for (const p of players) {
-      if (p.expectedValueCents <= 0) {
-        p.valueScore = 0;
-      } else {
-        const ratio = Math.log(p.expectedValueCents) / logMax;
-        p.valueScore = Math.max(1, Math.round(ratio * 100));
-      }
+      const playerBlend = blend(p.topPsa10Cents, p.medianPsa10Cents);
+      p.marketScore =
+        playerBlend > 0
+          ? Math.max(1, Math.round((playerBlend / maxBlend) * 100))
+          : 0;
     }
   }
   for (const row of players) {
     row.gemRate =
       row.popTotalSum > 0 ? row.popG10Sum / row.popTotalSum : null;
   }
-  // Rank by expected value, NOT by topPsa10. The user's complaint is
-  // exactly this: a /1 sold once shouldn't anchor the rank.
-  return players.sort(
-    (a, b) => b.expectedValueCents - a.expectedValueCents,
-  );
+  return players.sort((a, b) => b.marketScore - a.marketScore);
 }
 
 export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
@@ -195,7 +193,7 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
               </th>
               <th
                 className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
-                title="Value Score: 0-100 expected-value rating. Sums each card's PSA 10 price weighted by realistic pull probability (capped at 1 for printRun ≥ 100, 1% for /1 cards). Log-normalized against the set's top player. A /1 Superfractor doesn't dominate the rank — pullable cards do."
+                title="Market Score: 0-100 player market index, Card-Ladder style. Blends top PSA 10 (60%, the chase signal that lifts the whole player's market) with median PSA 10 across their cards (40%, the depth / typical-value floor). Log-normalized against the set's max. The /1 Superfractor counts fully — it IS a market signal, not noise."
               >
                 Score
               </th>
@@ -259,12 +257,12 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                   </td>
                   <td
                     className="px-3 py-2 text-right tabular-nums"
-                    title={`${p.valueScore}/100. Log-normalized against the top player's PSA 10 in this set.`}
+                    title={`${p.marketScore}/100. Log-normalized against the top player's PSA 10 in this set.`}
                   >
-                    {p.valueScore > 0 ? (
+                    {p.marketScore > 0 ? (
                       <>
                         <span className="text-base font-extrabold text-ink">
-                          {p.valueScore}
+                          {p.marketScore}
                         </span>
                         <span className="text-[10px] font-medium text-slate-400">
                           /100
