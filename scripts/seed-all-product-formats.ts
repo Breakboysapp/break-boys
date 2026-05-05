@@ -10,7 +10,10 @@
  *   npx tsx scripts/seed-all-product-formats.ts --apply    # write
  */
 import { PrismaClient } from "@prisma/client";
-import { defaultFormatsForProduct } from "../src/lib/product-formats-defaults";
+import {
+  defaultFormatsForProduct,
+  RETAIL_FORMAT_NAMES,
+} from "../src/lib/product-formats-defaults";
 
 async function main() {
   const apply = process.argv.includes("--apply");
@@ -63,10 +66,26 @@ async function main() {
     if (templates.length === 0) totalUnchanged++;
   }
 
+  // Cleanup pass: delete any retail-tier formats left behind from
+  // previous heuristic runs. The user explicitly doesn't track
+  // Hanger / Mega / Value / Blaster / etc.
+  let deletedRetail = 0;
+  if (apply) {
+    const result = await prisma.productFormat.deleteMany({
+      where: { name: { in: [...RETAIL_FORMAT_NAMES] } },
+    });
+    deletedRetail = result.count;
+  } else {
+    deletedRetail = await prisma.productFormat.count({
+      where: { name: { in: [...RETAIL_FORMAT_NAMES] } },
+    });
+  }
+
   console.log(
     `\nProducts processed: ${products.length}` +
       `\nFormats created:    ${totalCreated}${apply ? "" : " (dry-run)"}` +
-      `\nFormats updated:    ${totalUpdated}${apply ? "" : " (dry-run)"}`,
+      `\nFormats updated:    ${totalUpdated}${apply ? "" : " (dry-run)"}` +
+      `\nRetail rows purged: ${deletedRetail}${apply ? "" : " (would delete)"}`,
   );
 
   await prisma.$disconnect();

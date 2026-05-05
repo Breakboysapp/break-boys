@@ -1,23 +1,17 @@
 /**
  * Default box formats per product, derived from the product's name.
  *
- * Modern card products almost always come in a known set of box
- * configurations. Topps Chrome → Hobby + Mega + Hanger; Bowman Draft
- * → Hobby + Jumbo + Super Jumbo + Mega + Breaker Delight; Definitive
- * is a single Hobby SKU; etc. Rather than asking each user to type
- * those in (they won't), we infer from the product name and seed the
- * ProductFormat rows automatically.
+ * Hobby-tier formats only — Hobby, Jumbo, Super Jumbo, Breaker
+ * Delight (and premium variants like HTA Choice). Retail-tier
+ * formats (Hanger, Mega, Mega Box, Value, Blaster, Cello, Retail
+ * Choice) are intentionally excluded — the user doesn't track those.
  *
- * Pattern matches are checked in order — first hit wins. The terminal
- * fallback is a single "Hobby" so every product gets at least one
- * format; the user (or future me) can swap in a more accurate set if
- * a heuristic is wrong.
+ * Pattern matches are checked in order; first hit wins. Terminal
+ * fallback gives every product at least a "Hobby" entry.
  *
- * Pack/auto configs are populated where the data is widely-known and
- * stable (same numbers across years for the same product line). For
- * everything else, only the format NAMES are seeded; users can fill
- * in pack/auto details on the product page if they care, but the
- * names already make the format selector useful.
+ * Pack/auto configs are populated where the data is widely-known
+ * and stable. For unmatched specifics, only the format names are
+ * seeded.
  */
 
 export type FormatTemplate = {
@@ -44,24 +38,20 @@ const F = (
   notes: notes ?? null,
 });
 
-// Most specific patterns first — premium one-format products before
-// the brand-level catch-alls.
 const RULES: Rule[] = [
   // --- Premium single-Hobby products ---
-  // These are flagship high-end SKUs that typically only ship as a
-  // hobby-level box. No retail / mega / jumbo variant exists.
+  // Flagship high-end SKUs that ship as Hobby only — no retail variants.
   {
     match:
       /\b(definitive|flawless|national treasures|immaculate|origins|spectra|gilded|impeccable|allure|noir|signature series|one and one|gold standard|limited|opaque|skybox|black gold|sterling|five star|tribute|premier)\b/i,
     formats: [F("Hobby")],
   },
-  // Panini "Topps One" / "Panini One" single-format premium
   {
     match: /\bpanini one\b/i,
     formats: [F("Hobby")],
   },
 
-  // --- Bowman family (most variability) ---
+  // --- Bowman family ---
   {
     match: /\bbowman draft\b/i,
     formats: [
@@ -79,13 +69,6 @@ const RULES: Rule[] = [
         120,
         5,
         "Highest auto count per box, but CANNOT pull Orange /75 parallels — those are Hobby-exclusive.",
-      ),
-      F(
-        "Mega Box",
-        7,
-        5,
-        null,
-        "Mega-exclusive: Bowman In Action Mojo die-cuts, Prized Prospects Mojo, Chrome Prospect Mega Autographs, Chrome Prospects Laser Refractors. Two exclusive Chrome packs per box.",
       ),
       F(
         "Breaker Delight",
@@ -108,7 +91,6 @@ const RULES: Rule[] = [
         3,
         "Delight-exclusive Geometric Refractors and high auto density.",
       ),
-      F("Mega Box", 7, 4, null, "Mega-exclusive parallels."),
     ],
   },
   {
@@ -116,43 +98,41 @@ const RULES: Rule[] = [
     formats: [
       F("Hobby", 24, 10, 2),
       F("Jumbo", 12, 32, 3),
-      F("Mega Box", 8, 5),
-      F("Hanger", 1, 35),
+      F("Breaker Delight", 1, 10, 3),
     ],
   },
 
   // --- Topps Chrome family ---
-  // Premium variants like Sapphire / Black / Cosmic / Update / Logofractor
-  // each ship as a single Hobby SKU.
   {
     match:
       /\btopps chrome (sapphire|black|cosmic|update|logofractor|platinum anniversary)\b/i,
     formats: [F("Hobby")],
   },
+  // Football has more hobby SKUs than Baseball/Basketball — Jumbo +
+  // Breaker Delight in addition to standard Hobby.
   {
-    match: /\btopps chrome\b/i,
+    match: /\btopps chrome football\b/i,
     formats: [
       F("Hobby", 24, 4, 2),
-      F("Mega Box", 7, 4),
-      F("Hanger", 1, 25),
+      F("Jumbo", 12, 12, 3),
+      F("Breaker Delight", 1, 10, 3),
     ],
   },
-  // Topps Finest (premium hobby/mega only)
+  {
+    match: /\btopps chrome\b/i,
+    formats: [F("Hobby", 24, 4, 2)],
+  },
   {
     match: /\btopps finest\b/i,
-    formats: [F("Hobby"), F("Mega Box")],
+    formats: [F("Hobby")],
   },
 
-  // --- Topps flagship (Series 1/2/Update) ---
+  // --- Topps flagship (Series 1/2/Update / Heritage) ---
   {
     match: /\btopps (series|update)\b/i,
     formats: [
       F("Hobby", 24, 14, 1),
       F("Jumbo", 10, 46, 3),
-      F("Mega Box", 5, 12),
-      F("Hanger", 1, 67),
-      F("Blaster", 7, 8),
-      F("Retail", 36, 14),
     ],
   },
   {
@@ -160,35 +140,24 @@ const RULES: Rule[] = [
     formats: [
       F("Hobby", 24, 9, 1),
       F("Jumbo", 12, 25, 2),
-      F("Mega Box", 8, 9),
-      F("Hanger", 1, 35),
     ],
   },
 
-  // --- Panini flagship hobby + retail spread ---
-  // Prizm / Mosaic / Select / Donruss — all share a similar Hobby +
-  // Cello + Mega + Choice + Hanger profile, with minor SKU variance.
+  // --- Panini flagship ---
+  // Single Hobby for everything — Panini's retail spread (Cello /
+  // Choice / Blaster / Mega) is excluded per user preference.
   {
     match: /\bpanini (prizm|mosaic|select)\b/i,
-    formats: [
-      F("Hobby"),
-      F("Cello"),
-      F("Mega Box"),
-      F("Choice"),
-      F("Hanger"),
-    ],
-  },
-  // Donruss Racing (NASCAR) is single Hobby — must be checked BEFORE
-  // the generic Panini Donruss rule below or it gets the multi-format
-  // catch-all by mistake.
-  {
-    match: /\bdonruss racing\b/i,
     formats: [F("Hobby")],
   },
   {
     match:
       /\bpanini (donruss|absolute|phoenix|contenders|illusions|zenith|chronicles|rookies & stars|score)\b/i,
-    formats: [F("Hobby"), F("Cello"), F("Mega Box"), F("Hanger")],
+    formats: [F("Hobby")],
+  },
+  {
+    match: /\bdonruss racing\b/i,
+    formats: [F("Hobby")],
   },
 
   // --- Upper Deck ---
@@ -197,27 +166,22 @@ const RULES: Rule[] = [
     formats: [F("Hobby")],
   },
   {
-    match: /\bo-pee-chee platinum\b/i,
-    formats: [F("Hobby"), F("Blaster")],
+    match: /\bo-pee-chee( platinum)?\b/i,
+    formats: [F("Hobby")],
   },
-  {
-    match: /\bo-pee-chee\b/i,
-    formats: [F("Hobby"), F("Blaster"), F("Hanger")],
-  },
-  // Rush of Ikorr — Upper Deck's TCG, booster-driven
+  // Rush of Ikorr — Upper Deck's TCG, booster-driven (kept since
+  // these are TCG packs, not 'retail' in the sports-card sense).
   {
     match: /rush of ikorr/i,
     formats: [F("Booster Box"), F("Booster Pack")],
   },
 
-  // --- Terminal fallback: any product unmatched gets a single Hobby ---
-  // Far better than an empty editor; the user can edit if needed.
+  // --- Terminal fallback ---
   { match: /.*/, formats: [F("Hobby")] },
 ];
 
 /**
  * Returns the default formats for a given product name.
- *
  * Pattern-matched, deterministic. Re-running on the same name always
  * returns the same list — important since the seed upserts on
  * (productId, name) and we don't want subsequent runs to reorder or
@@ -229,3 +193,19 @@ export function defaultFormatsForProduct(name: string): FormatTemplate[] {
   }
   return [F("Hobby")];
 }
+
+/**
+ * Set of format names that are explicitly retail-tier and should be
+ * deleted from the DB during the seed cleanup pass. Used by the
+ * seed script to clean up rows from previous heuristics.
+ */
+export const RETAIL_FORMAT_NAMES = new Set([
+  "Hanger",
+  "Mega",
+  "Mega Box",
+  "Value",
+  "Blaster",
+  "Cello",
+  "Choice",
+  "Retail",
+]);

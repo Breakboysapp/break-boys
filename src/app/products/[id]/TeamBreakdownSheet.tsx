@@ -446,23 +446,21 @@ function PlayerSubBreakdown({
   return (
     <div className="px-3 py-2">
       {/*
-        Compact 3-column layout — Player / Card mix / Score — replaces
-        the wide bucket-by-bucket sub-table that visually didn't line
-        up with the parent score card and felt jumbled on mobile. The
-        per-bucket counts move into a single inline 'mix' string ("4
-        Base · 1 Auto · 2 Inserts") that scales cleanly regardless of
-        how many buckets the product has. Vertical scroll caps at
-        max-h-[360px] so a deep team doesn't push the next row off
-        screen.
+        Two-level sticky list (iOS Contacts pattern):
+          - Team header sticks at top: 0 of the scroll container
+          - Each player header sticks at top: ~38px (just under the
+            team header) so the player name stays visible while
+            scrolling through THEIR cards. As the next player's
+            section approaches, it pushes the previous player's
+            header up and out of the sticky region.
+        Each card is rendered as one line under its player so users
+        can see exactly what's in the team: card number on the left,
+        the variation label on the right.
       */}
       <div className="overflow-hidden rounded border border-slate-200 bg-slate-50">
         <div className="max-h-[360px] overflow-y-auto overscroll-none">
-          {/* Sticky team header — stays pinned to the top of the
-              sub-list while you scroll, so you never lose track of
-              which team's players you're looking at. The position:
-              sticky on a div inside the scroll container resolves
-              against this container's top edge. */}
-          <div className="sticky top-0 z-10 flex items-baseline justify-between gap-3 border-b border-slate-200 bg-bone px-3 py-2">
+          {/* Team header — sticky at top of scroll container. */}
+          <div className="sticky top-0 z-20 flex items-baseline justify-between gap-3 border-b border-slate-200 bg-bone px-3 py-2">
             <div className="min-w-0 flex-1">
               <span className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
                 {teamName}
@@ -481,46 +479,66 @@ function PlayerSubBreakdown({
               </span>
             </div>
           </div>
-          <ul className="divide-y divide-slate-200">
-            {players.map((p) => {
-              // Build a short mix summary like "4 Base · 1 Auto · 2 Insert".
-              // Sort by bucket weight desc so heavier card types appear first.
-              const mix = buckets
-                .map((b) => {
-                  const nums = p.byBucket.get(b.label) ?? [];
-                  if (nums.length === 0) return null;
-                  const split = splitVariationLabel(b.label);
-                  return `${nums.length} ${split.name}`;
-                })
-                .filter((s): s is string => s != null);
 
-              return (
-                <li
-                  key={p.playerName}
-                  className="flex items-baseline gap-3 px-3 py-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-semibold tracking-tight-2 text-ink">
-                      {p.playerName}
-                    </div>
-                    {mix.length > 0 && (
-                      <div className="mt-0.5 truncate text-[10px] text-slate-500">
-                        {mix.join("  ·  ")}
-                      </div>
-                    )}
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <div className="text-base font-extrabold tabular-nums leading-none text-ink">
+          {players.map((p) => {
+            // Flatten the player's cards into one ordered list.
+            // Sort by bucket weight desc (heavier card types first)
+            // so a player's autos / 1/1s appear before base.
+            const orderedBuckets = [...buckets].sort(
+              (a, b) => b.weight - a.weight,
+            );
+            const playerCards: Array<{
+              cardNumber: string;
+              bucketLabel: string;
+            }> = [];
+            for (const b of orderedBuckets) {
+              const nums = p.byBucket.get(b.label) ?? [];
+              const split = splitVariationLabel(b.label);
+              for (const cn of nums) {
+                playerCards.push({
+                  cardNumber: cn,
+                  bucketLabel: split.name,
+                });
+              }
+            }
+
+            return (
+              <section key={p.playerName}>
+                {/* Player header — sticky just below the team header
+                    (top: 38px ≈ team header height). When scrolling
+                    through this player's cards, the name stays
+                    visible until the next player's section arrives. */}
+                <header className="sticky top-[38px] z-10 flex items-baseline justify-between gap-3 border-b border-slate-200 bg-slate-100 px-3 py-1.5">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight-2 text-ink">
+                    {p.playerName}
+                  </span>
+                  <span className="shrink-0">
+                    <span className="text-[13px] font-extrabold tabular-nums text-ink">
                       {p.totalScore}
-                    </div>
-                    <div className="mt-0.5 text-[9px] uppercase tracking-tight-2 text-slate-400">
+                    </span>
+                    <span className="ml-1 text-[9px] uppercase tracking-tight-2 text-slate-400">
                       pts
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                    </span>
+                  </span>
+                </header>
+                <ul className="divide-y divide-slate-200">
+                  {playerCards.map((c, i) => (
+                    <li
+                      key={`${c.cardNumber}-${i}`}
+                      className="flex items-baseline gap-3 bg-slate-50 px-3 py-1.5"
+                    >
+                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-slate-700">
+                        {c.cardNumber}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">
+                        {c.bucketLabel}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
         </div>
       </div>
     </div>
