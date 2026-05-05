@@ -215,17 +215,11 @@ export default async function HomePage({
         searchPlaceholder="Search products by name…"
         initialQuery={params.q ?? ""}
         facets={[
-          // Sport stays as chips — only 3-4 main sports, low cardinality,
-          // worth eyeballing inline. Year + Manufacturer have more values
-          // and benefit from being collapsed into dropdowns so the page
-          // doesn't dedicate three full rows to filters.
-          {
-            label: "Sport",
-            paramKey: "sport",
-            values: sports,
-            selected: sport,
-            variant: "chips",
-          },
+          // Sport is intentionally NOT in this list — the big
+          // SportQuickJumpRow cards above already cover that filter
+          // (and any other sport beyond NFL/NBA/MLB is rare enough on
+          // this catalog that the dropdown was mostly noise). Year +
+          // Manufacturer stay as compact dropdowns sharing one row.
           {
             label: "Year",
             paramKey: "year",
