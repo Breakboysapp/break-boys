@@ -32,7 +32,11 @@ type Row = {
   marketScore?: number;
 };
 
-type SortBy = "score" | "value" | "market";
+// "value" was the eBay-confirmed-market sort. Retired in favor of
+// Market (PriceCharting-backed). Kept in the type union so the
+// always-false anyValueData branches below typecheck cleanly without
+// dead-code edits. Setter never produces "value" anymore.
+type SortBy = "score" | "market" | "value";
 
 type CardLite = {
   team: string;
@@ -70,14 +74,7 @@ export default function TeamBreakdownSheet({
   // bucket don't shuffle randomly between renders.
   const rows = useMemo(() => {
     const copy = [...rawRows];
-    if (sortBy === "value") {
-      copy.sort((a, b) => {
-        if (b.confirmedMarketCents !== a.confirmedMarketCents) {
-          return b.confirmedMarketCents - a.confirmedMarketCents;
-        }
-        return b.totalScore - a.totalScore;
-      });
-    } else if (sortBy === "market") {
+    if (sortBy === "market") {
       copy.sort((a, b) => {
         const am = a.marketScore ?? 0;
         const bm = b.marketScore ?? 0;
@@ -93,7 +90,12 @@ export default function TeamBreakdownSheet({
   // data. We deliberately do NOT use the synthetic class-based estimate
   // here as the displayed number — it's too noisy across player tiers
   // (an Ohtani auto = $2500, a journeyman auto = $50, both class=10).
-  const anyValueData = rawRows.some((r) => r.cardsWithMarket > 0);
+  // The Value column (eBay confirmed-market sort) is fully retired — the
+  // new Market column (PriceCharting-backed market score) covers the
+  // same intent better. anyValueData stays defined as `false` so the
+  // existing conditional-render call sites below short-circuit cleanly
+  // without me having to rip them out everywhere.
+  const anyValueData = false;
   // Only show Market Score column when (a) we're on team view AND (b) at
   // least one row has a non-zero score. Player view hides it because the
   // Chase scoreboard is the dedicated per-player market view.
@@ -462,10 +464,20 @@ export default function TeamBreakdownSheet({
                               {nums.length === 0 ? (
                                 "—"
                               ) : (
-                                <div className="flex flex-wrap justify-end gap-x-1.5 gap-y-0 text-[10px] leading-tight">
-                                  {nums.map((n, ni) => (
-                                    <span key={`${n}-${ni}`}>#{n}</span>
-                                  ))}
+                                // Single-row summary instead of the
+                                // wrapping list. Long ones (Saggese
+                                // 50× #87 across every parallel) used
+                                // to blow the row to ~50 lines tall.
+                                // Now: show count + first card #;
+                                // truncate the rest.
+                                <div className="text-[10px] leading-tight">
+                                  <span className="font-semibold text-slate-700">
+                                    {nums.length}×
+                                  </span>{" "}
+                                  <span className="text-slate-500">
+                                    #{nums[0]}
+                                    {nums.length > 1 && "+"}
+                                  </span>
                                 </div>
                               )}
                             </td>
@@ -647,12 +659,6 @@ function SortToggle({
           Market
         </ToggleButton>
       )}
-      <ToggleButton
-        active={current === "value"}
-        onClick={() => onChange("value")}
-      >
-        Value
-      </ToggleButton>
     </div>
   );
 }
