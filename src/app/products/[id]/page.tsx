@@ -236,19 +236,24 @@ export default async function ProductPage({
 }
 
 /**
- * Compute a 0-100 Market Score per team. Mirrors the Chase view's
- * per-player blend (log(top + 1) * 0.6 + log(median + 1) * 0.4) and
- * aggregates by team:
+ * Compute a 0-100 Market Score per team. The Chase view's per-player
+ * marketScore uses a log-compressed blend (good for normalizing the
+ * spread to a tidy 0-100 scale) — but log compression is the wrong
+ * choice when AGGREGATING players within a team, because it makes
+ * stars and benchwarmers contribute similar amounts. ("$50 nobody"
+ * blend ≈ 8.5; "$13k chase rookie" blend ≈ 14.1 — only 1.7× more.)
+ * That math punishes star-heavy teams and rewards long-tail rosters.
  *
- *   1. Group cards by playerName, take each player's top + median
- *      psa10Cents across their parallels in this set.
- *   2. Compute each player's blend (their "market index" within the set).
- *   3. Sum unique player blends per team. Players with no priced cards
- *      contribute zero — coverage gaps don't punish the team unfairly,
- *      they just leave headroom.
- *   4. Normalize across teams so the top team = 100.
+ * For team aggregation we use RAW cents instead. Per-player weight =
+ * top PSA 10 + median PSA 10. Sum that across the team's roster, then
+ * normalize across teams so the top team in the set = 100. Stars
+ * dominate the way the user expects: Pirates with Seth Hernandez at
+ * $6,843 outweighs the entire Rockies roster of ~$50-3,900 cards even
+ * before Konnor Griffin is added in. Long tails of cheap players don't
+ * pile up to outrank concentrated value.
  *
- * Returns a Map<teamName, score 0-100>. Empty cards array → empty map.
+ * Players with no priced cards contribute zero — coverage gaps don't
+ * unfairly punish a team, they just leave headroom.
  */
 function computeTeamMarketScores(
   cards: Array<{
@@ -257,9 +262,7 @@ function computeTeamMarketScores(
     psa10Cents: number | null;
   }>,
 ): Map<string, number> {
-  // Per-player PSA 10 prices.
   const playerPsa10s = new Map<string, number[]>();
-  // Player → team mapping (first non-placeholder team encountered).
   const playerTeam = new Map<string, string>();
   for (const c of cards) {
     if (c.psa10Cents != null && c.psa10Cents > 0) {
@@ -277,21 +280,17 @@ function computeTeamMarketScores(
     const m = Math.floor(s.length / 2);
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
   }
-  // Per-player blend.
-  const playerBlend = new Map<string, number>();
-  for (const [name, prices] of playerPsa10s.entries()) {
-    const top = Math.max(...prices);
-    const med = median(prices);
-    playerBlend.set(name, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
-  }
-  // Aggregate by team.
+  // Per-player weight = top + median PSA 10 in raw cents (no log). Top
+  // captures the chase ceiling; median grounds it so a player with one
+  // anomalous /1 sale doesn't dominate over a player with a deep
+  // priced portfolio. Sum makes stars dominate the team total.
   const teamRaw = new Map<string, number>();
-  for (const [name, blend] of playerBlend.entries()) {
+  for (const [name, prices] of playerPsa10s.entries()) {
     const team = playerTeam.get(name);
     if (!team) continue;
-    teamRaw.set(team, (teamRaw.get(team) ?? 0) + blend);
+    const weight = Math.max(...prices) + median(prices);
+    teamRaw.set(team, (teamRaw.get(team) ?? 0) + weight);
   }
-  // Normalize to 0-100.
   const max = Math.max(0, ...teamRaw.values());
   const out = new Map<string, number>();
   if (max === 0) return out;
