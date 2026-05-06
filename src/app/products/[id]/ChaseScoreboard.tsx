@@ -447,55 +447,38 @@ function MarketScoreExplainer({ onClose }: { onClose: () => void }) {
 
         <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-700">
           <p>
-            A <strong>0–100 player market index</strong>, modeled after
-            the way Card Ladder builds player indexes — the trophy card
-            isn&apos;t something you&apos;ll personally pull from a break,
-            but its sale price IS a real market signal that lifts the
-            player&apos;s whole market.
+            A <strong>0–100 player market index</strong> — like a stock
+            index for each player&apos;s card market in this set. Top
+            player in the set is pinned at 100; everyone else slides
+            relative to them.
           </p>
-          <div className="rounded-lg border border-slate-200 bg-bone p-3 text-xs">
-            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
-              Formula
-            </div>
-            <code className="mt-1 block whitespace-pre-wrap font-mono text-[11px] text-ink">
-              per-card value = max(PSA 10, raw × 6){"\n"}
-              blend = log(top + 1) × 0.6 + log(median + 1) × 0.4{"\n"}
-              score = round(blend / set_max_blend × 100)
-            </code>
-          </div>
           <ul className="space-y-1.5 text-[13px]">
             <li>
-              <strong>Per-card value</strong> blends actual PSA 10 sales
-              with raw comps — when PriceCharting has a graded sale we
-              use it; for chase cards that haven&apos;t traded graded yet
-              (most /1s, /5 Refractors), we estimate from raw × 6. Stops
-              undercounting players whose ultra-rare parallels exist on
-              the secondary market but haven&apos;t been formally graded.
+              <strong>Chase signal weighs heaviest.</strong> The
+              trophy card isn&apos;t something you&apos;ll personally
+              pull, but its sale price IS the strongest signal of where
+              the player&apos;s market sits — and lifts the value of
+              their other cards across the board.
             </li>
             <li>
-              <strong>60% top value</strong> — the chase signal. A
-              Superfractor /1 selling at $50K tells the market this
-              player&apos;s cards are worth more across the board.
+              <strong>Depth matters too.</strong> A player with a few
+              solid parallels selling consistently shouldn&apos;t lose
+              to one whose only data point is a single anomalous /1
+              sale. We weight median sale data alongside the top.
             </li>
             <li>
-              <strong>40% median PSA 10</strong> — the depth signal.
-              Counterweight so a player with one high-priced /1 and
-              nothing else doesn&apos;t outrank a player with five solid
-              parallels.
+              <strong>Both graded and raw comps count.</strong> Many
+              ultra-rare parallels (/1s, /5 Refractors) trade actively
+              on the secondary market without ever being graded — we
+              factor those in instead of pretending they don&apos;t
+              exist.
             </li>
             <li>
-              <strong>Log-normalized</strong> against the set&apos;s top
-              player. Top player = 100, others slide on a log curve so
-              order-of-magnitude differences read cleanly without lower
-              ranks squashed to single digits.
+              <strong>Read alongside Gem Rate.</strong> Pop volume is a
+              separate market-validity signal: collectors only pay
+              grading fees on cards they think are worth grading.
             </li>
           </ul>
-          <p className="text-xs text-slate-500">
-            The Gem Rate column adds a separate market-validity signal:
-            collectors only pay grading fees on cards they think are
-            worth grading, so high pop volume = real demand. Both
-            columns are designed to be read together.
-          </p>
         </div>
       </div>
     </div>
