@@ -280,16 +280,33 @@ function computeTeamMarketScores(
     const m = Math.floor(s.length / 2);
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
   }
-  // Per-player weight = top + median PSA 10 in raw cents (no log). Top
-  // captures the chase ceiling; median grounds it so a player with one
-  // anomalous /1 sale doesn't dominate over a player with a deep
-  // priced portfolio. Sum makes stars dominate the team total.
-  const teamRaw = new Map<string, number>();
+  // Per-player value = top PSA 10 + median PSA 10. Top is the chase
+  // signal; median grounds it so an anomalous /1 sale doesn't fully
+  // dominate over a player with deep priced data.
+  const playerValue = new Map<string, number>();
   for (const [name, prices] of playerPsa10s.entries()) {
+    playerValue.set(name, Math.max(...prices) + median(prices));
+  }
+  // Team aggregation: TOP player carries full weight, others contribute
+  // at 30%. Models break-room economics — the chase pull is what people
+  // are paying for, depth is a tiebreaker, not a substitute. A roster
+  // with one $13k Kade outranks a roster with twelve $500 mid-tier
+  // guys (sum of medians) the way it should.
+  const DEPTH_WEIGHT = 0.3;
+  const teamPlayers = new Map<string, number[]>();
+  for (const [name, value] of playerValue.entries()) {
     const team = playerTeam.get(name);
     if (!team) continue;
-    const weight = Math.max(...prices) + median(prices);
-    teamRaw.set(team, (teamRaw.get(team) ?? 0) + weight);
+    const arr = teamPlayers.get(team) ?? [];
+    arr.push(value);
+    teamPlayers.set(team, arr);
+  }
+  const teamRaw = new Map<string, number>();
+  for (const [team, values] of teamPlayers.entries()) {
+    const sorted = [...values].sort((a, b) => b - a);
+    const top = sorted[0] ?? 0;
+    const restSum = sorted.slice(1).reduce((s, v) => s + v, 0);
+    teamRaw.set(team, top + DEPTH_WEIGHT * restSum);
   }
   const max = Math.max(0, ...teamRaw.values());
   const out = new Map<string, number>();
