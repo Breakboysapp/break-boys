@@ -39,7 +39,7 @@ model Product {
 }
 
 model Card {
-  id               String     @id @default(cuid())
+  id               String              @id @default(cuid())
   productId        String
   team             String
   playerName       String
@@ -55,7 +55,7 @@ model Card {
   // populated by scripts/import-pricecharting-set.ts when the card
   // matches a PriceCharting listing. Prices in cents (consistent with
   // marketValueCents / boxPriceCents elsewhere in the schema).
-  pricechartingId  String?    @unique
+  pricechartingId  String?             @unique
   ungradedCents    Int? // PC price1 — raw / loose
   psa10Cents       Int? // PC price2 — graded gem
   psa9Cents        Int? // PC price3 — graded mint
@@ -73,11 +73,35 @@ model Card {
   popG10           Int?
   popTotal         Int?
   popUpdatedAt     DateTime?
-  product          Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product          Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
   userCards        UserCard[]
+  priceSnapshots   CardPriceSnapshot[]
 
   @@index([productId, team])
   @@index([productId, psa10Cents])
+}
+
+// Daily snapshot of a card's prices, written by the PriceCharting
+// importer when current values diverge from the last snapshot. The
+// existing Card.psa10Cents / ungradedCents / psa9Cents fields hold
+// the LATEST values for fast reads; this table is the historical
+// log used for trend math (player growth/decline, 7d/30d Δ%).
+//
+// Why a separate table instead of versioned columns: querying
+// "what was Soto's PSA 10 thirty days ago" is a simple range query
+// on capturedAt, and we don't need any of this data on the hot path
+// when rendering the scorecard. Unbounded log; we trim with a cron
+// job once it grows big enough to matter.
+model CardPriceSnapshot {
+  id            String   @id @default(cuid())
+  cardId        String
+  capturedAt    DateTime @default(now())
+  ungradedCents Int?
+  psa10Cents    Int?
+  psa9Cents     Int?
+  card          Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, capturedAt])
 }
 
 model TeamPrice {
