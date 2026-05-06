@@ -74,7 +74,14 @@ export default async function ProductPage({
   // normalize across teams (top team = 100). Players with zero priced
   // cards contribute nothing — keeps the score honest about market data
   // coverage in this set.
-  const teamMarketScores = computeTeamMarketScores(product.cards);
+  const teamMarketScores = computeTeamMarketScores(
+    product.cards.map((c) => ({
+      team: c.team,
+      playerName: c.playerName,
+      psa10Cents: c.psa10Cents,
+      ungradedCents: c.ungradedCents,
+    })),
+  );
   // Inject marketScore into each team breakdown row. Keys by team name
   // so re-ordering / filtering on the client doesn't drift.
   for (const r of teamBreakdown.rows) {
@@ -260,15 +267,35 @@ function computeTeamMarketScores(
     team: string;
     playerName: string;
     psa10Cents: number | null;
+    ungradedCents: number | null;
   }>,
 ): Map<string, number> {
-  const playerPsa10s = new Map<string, number[]>();
+  // Per-card "effective" value = max of actual PSA 10 and a raw-derived
+  // estimate (raw × multiplier). Lets cards that PC has raw comps for
+  // but no graded comps yet (e.g. Jamie Arnold's BD-30 Black /1 at
+  // $3K raw, no PSA 10 listed) still contribute to the player's
+  // marketScore. Multiplier 6 is conservative — high-end rookie autos
+  // often sell at 10-15x raw graded, but we'd rather under-estimate
+  // chase value than over-inflate cards that haven't actually traded
+  // graded.
+  const RAW_TO_GRADED_MULT = 6;
+  const effectiveCents = (c: {
+    psa10Cents: number | null;
+    ungradedCents: number | null;
+  }) => {
+    const psa = c.psa10Cents ?? 0;
+    const raw = (c.ungradedCents ?? 0) * RAW_TO_GRADED_MULT;
+    return Math.max(psa, raw);
+  };
+
+  const playerPrices = new Map<string, number[]>();
   const playerTeam = new Map<string, string>();
   for (const c of cards) {
-    if (c.psa10Cents != null && c.psa10Cents > 0) {
-      const arr = playerPsa10s.get(c.playerName) ?? [];
-      arr.push(c.psa10Cents);
-      playerPsa10s.set(c.playerName, arr);
+    const v = effectiveCents(c);
+    if (v > 0) {
+      const arr = playerPrices.get(c.playerName) ?? [];
+      arr.push(v);
+      playerPrices.set(c.playerName, arr);
     }
     if (c.team && c.team !== "—" && !playerTeam.has(c.playerName)) {
       playerTeam.set(c.playerName, c.team);
@@ -284,7 +311,7 @@ function computeTeamMarketScores(
   // signal; median grounds it so an anomalous /1 sale doesn't fully
   // dominate over a player with deep priced data.
   const playerValue = new Map<string, number>();
-  for (const [name, prices] of playerPsa10s.entries()) {
+  for (const [name, prices] of playerPrices.entries()) {
     playerValue.set(name, Math.max(...prices) + median(prices));
   }
   // Team aggregation models break-room economics: a roster with 2-3
