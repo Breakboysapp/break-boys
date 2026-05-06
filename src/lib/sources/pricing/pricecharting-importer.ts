@@ -57,6 +57,18 @@ export const TRACKED_SLUGS: SlugMeta[] = [
     sport: "MLB",
     manufacturer: "Topps",
   },
+  // Topps Chrome Rookie Autograph (RA-XX) — separate slug, same
+  // adoption pattern as Bowman Draft autos: same name+sport as base
+  // Chrome so this slug's cards merge into the same Product. Without
+  // this, Sasaki / Skenes / Wood / etc. rookie autos (real chase
+  // cards in Chrome) never get prices and the marketScore underweights
+  // the rookie tier.
+  {
+    slug: "baseball-cards-2025-topps-chrome-rookie-autograph",
+    name: "2025 Topps Chrome Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
+  },
   {
     slug: "baseball-cards-2025-bowman-draft",
     name: "2025 Bowman Draft Baseball",
