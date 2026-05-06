@@ -26,6 +26,7 @@ export default async function ProductPage({
       teamPrices: { orderBy: { team: "asc" } },
       cards: {
         select: {
+          id: true,
           cardNumber: true,
           team: true,
           playerName: true,
@@ -81,6 +82,65 @@ export default async function ProductPage({
       psa10Cents: c.psa10Cents,
       ungradedCents: c.ungradedCents,
     })),
+  );
+
+  // Per-card price trend — % change in effective value from the
+  // earliest snapshot to current. Powers the "Trend" column on the
+  // Chase view. Snapshots only get written when a card's prices
+  // actually move, so a card's earliest snapshot is its first
+  // documented price; baselines accumulate naturally over time.
+  // Empty until we have ≥2 snapshots per card; column fills in as
+  // the cron runs each morning.
+  const cardSnapshots = await prisma.cardPriceSnapshot.findMany({
+    where: { card: { productId: product.id } },
+    select: {
+      cardId: true,
+      capturedAt: true,
+      psa10Cents: true,
+      ungradedCents: true,
+    },
+    orderBy: { capturedAt: "asc" },
+  });
+  const earliestSnapshot = new Map<
+    string,
+    {
+      capturedAt: Date;
+      psa10Cents: number | null;
+      ungradedCents: number | null;
+    }
+  >();
+  for (const s of cardSnapshots) {
+    if (!earliestSnapshot.has(s.cardId)) {
+      earliestSnapshot.set(s.cardId, s);
+    }
+  }
+  const RAW_TO_GRADED = 6;
+  const eff = (psa: number | null, raw: number | null) =>
+    Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
+  const cardTrend = new Map<
+    string,
+    { pct: number; daysSpan: number }
+  >();
+  const now = new Date();
+  for (const c of product.cards) {
+    const earliest = earliestSnapshot.get(c.id);
+    if (!earliest) continue;
+    const baseline = eff(earliest.psa10Cents, earliest.ungradedCents);
+    const current = eff(c.psa10Cents, c.ungradedCents);
+    if (baseline <= 0) continue;
+    const pct = ((current - baseline) / baseline) * 100;
+    const daysSpan =
+      (now.getTime() - earliest.capturedAt.getTime()) / 86_400_000;
+    cardTrend.set(c.id, { pct, daysSpan });
+  }
+  // Set-wide max snapshot age, used to label the trend column with
+  // the actual time span we're showing ("Trend (15d)" or "Trend (1d)").
+  const trendMaxDays = [...earliestSnapshot.values()].reduce(
+    (max, s) => {
+      const d = (now.getTime() - s.capturedAt.getTime()) / 86_400_000;
+      return Math.max(max, d);
+    },
+    0,
   );
   // Inject marketScore into each team breakdown row. Keys by team name
   // so re-ordering / filtering on the client doesn't drift.
@@ -217,7 +277,9 @@ export default async function ProductPage({
                   imageUrl: c.imageUrl,
                   popG10: c.popG10,
                   popTotal: c.popTotal,
+                  trendPct: cardTrend.get(c.id)?.pct ?? null,
                 }))}
+                trendDays={trendMaxDays}
               />
             </section>
           )}
