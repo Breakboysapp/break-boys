@@ -23,6 +23,10 @@ export type ChaseCard = {
   popG10: number | null;
   popTotal: number | null;
   imageUrl: string | null;
+  /** % change in effective value from the earliest CardPriceSnapshot
+   *  on this card to the current price. null when we have <2 snapshots
+   *  for this card (price hasn't moved yet, or just baselined today). */
+  trendPct?: number | null;
 };
 
 type PlayerRollup = {
@@ -32,6 +36,9 @@ type PlayerRollup = {
    * rare since manual checklist uploads carry real teams. */
   team: string;
   cardCount: number;
+  /** % change of the player's TOP card's effective value over the
+   * snapshot window. null when no priced card has trend data yet. */
+  topCardTrendPct: number | null;
   /** Highest PSA 10 across this player's cards. Drives the score —
    *  Card Ladder's player-index logic: a /1 Superfractor selling for
    *  $50k IS a market signal that lifts the player's whole market,
@@ -98,6 +105,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
         topVariation: null,
         topCardNumber: "",
         topImageUrl: null,
+        topCardTrendPct: null,
         medianPsa10Cents: 0,
         marketScore: 0,
         popG10Sum: 0,
@@ -118,6 +126,11 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       row.topVariation = c.variation;
       row.topCardNumber = c.cardNumber;
       row.topImageUrl = c.imageUrl;
+      // Lock the trend to the top card whenever we promote a new top.
+      // If that card has no snapshot baseline yet (most common case
+      // until the cron has run a few days) we leave it null and the
+      // column shows "—" for the player.
+      row.topCardTrendPct = c.trendPct ?? null;
     }
     if (c.popG10 != null) row.popG10Sum += c.popG10;
     if (c.popTotal != null) row.popTotalSum += c.popTotal;
@@ -152,11 +165,25 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
   return players.sort((a, b) => b.marketScore - a.marketScore);
 }
 
-export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
+export default function ChaseScoreboard({
+  cards,
+  trendDays,
+}: {
+  cards: ChaseCard[];
+  trendDays?: number;
+}) {
   const players = useMemo(() => rollupByPlayer(cards), [cards]);
   const top20 = players.slice(0, 20);
   const hasAnyValue = top20.some((p) => p.topPsa10Cents > 0);
   const hasAnyPop = top20.some((p) => p.popTotalSum > 0);
+  // Only show Trend column when at least one player has trend data
+  // (i.e. ≥2 snapshots on their top card). Day-1 of tracking nothing
+  // shows; column fills in as the cron runs each morning.
+  const hasAnyTrend = top20.some((p) => p.topCardTrendPct != null);
+  const trendLabel =
+    trendDays != null && trendDays >= 1
+      ? `${Math.round(trendDays)}D Trend`
+      : "Trend";
   const [explainerOpen, setExplainerOpen] = useState(false);
 
   if (!hasAnyValue) {
@@ -214,6 +241,14 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
               <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2">
                 Top card
               </th>
+              {hasAnyTrend && (
+                <th
+                  className="w-20 min-w-[80px] bg-ink px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                  title={`% change in the player's top card effective value over the snapshot window (${trendDays != null ? Math.round(trendDays) + " days" : "current"}). Calculated against the earliest CardPriceSnapshot on each player's top card. Fills in as the daily cron accumulates more history.`}
+                >
+                  {trendLabel}
+                </th>
+              )}
               <th className="w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
                 <button
                   type="button"
@@ -290,6 +325,33 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                       </div>
                     </div>
                   </td>
+                  {hasAnyTrend && (
+                    <td
+                      className="w-20 min-w-[80px] px-3 py-2 text-right tabular-nums"
+                      title={
+                        p.topCardTrendPct != null
+                          ? `${p.topCardTrendPct.toFixed(1)}% change on this player's top card over the snapshot window`
+                          : "No trend data yet for this player's top card."
+                      }
+                    >
+                      {p.topCardTrendPct != null ? (
+                        <span
+                          className={`text-[12px] font-bold ${
+                            p.topCardTrendPct > 0
+                              ? "text-emerald-600"
+                              : p.topCardTrendPct < 0
+                                ? "text-accent"
+                                : "text-slate-400"
+                          }`}
+                        >
+                          {p.topCardTrendPct > 0 ? "↑" : p.topCardTrendPct < 0 ? "↓" : "="}
+                          {Math.abs(p.topCardTrendPct).toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                  )}
                   <td
                     className="px-3 py-2 text-right tabular-nums"
                     title={`${p.marketScore}/100. Log-normalized against the top player's PSA 10 in this set.`}
@@ -385,55 +447,38 @@ function MarketScoreExplainer({ onClose }: { onClose: () => void }) {
 
         <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-700">
           <p>
-            A <strong>0–100 player market index</strong>, modeled after
-            the way Card Ladder builds player indexes — the trophy card
-            isn&apos;t something you&apos;ll personally pull from a break,
-            but its sale price IS a real market signal that lifts the
-            player&apos;s whole market.
+            A <strong>0–100 player market index</strong> — like a stock
+            index for each player&apos;s card market in this set. Top
+            player in the set is pinned at 100; everyone else slides
+            relative to them.
           </p>
-          <div className="rounded-lg border border-slate-200 bg-bone p-3 text-xs">
-            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
-              Formula
-            </div>
-            <code className="mt-1 block whitespace-pre-wrap font-mono text-[11px] text-ink">
-              per-card value = max(PSA 10, raw × 6){"\n"}
-              blend = log(top + 1) × 0.6 + log(median + 1) × 0.4{"\n"}
-              score = round(blend / set_max_blend × 100)
-            </code>
-          </div>
           <ul className="space-y-1.5 text-[13px]">
             <li>
-              <strong>Per-card value</strong> blends actual PSA 10 sales
-              with raw comps — when PriceCharting has a graded sale we
-              use it; for chase cards that haven&apos;t traded graded yet
-              (most /1s, /5 Refractors), we estimate from raw × 6. Stops
-              undercounting players whose ultra-rare parallels exist on
-              the secondary market but haven&apos;t been formally graded.
+              <strong>Chase signal weighs heaviest.</strong> The
+              trophy card isn&apos;t something you&apos;ll personally
+              pull, but its sale price IS the strongest signal of where
+              the player&apos;s market sits — and lifts the value of
+              their other cards across the board.
             </li>
             <li>
-              <strong>60% top value</strong> — the chase signal. A
-              Superfractor /1 selling at $50K tells the market this
-              player&apos;s cards are worth more across the board.
+              <strong>Depth matters too.</strong> A player with a few
+              solid parallels selling consistently shouldn&apos;t lose
+              to one whose only data point is a single anomalous /1
+              sale. We weight median sale data alongside the top.
             </li>
             <li>
-              <strong>40% median PSA 10</strong> — the depth signal.
-              Counterweight so a player with one high-priced /1 and
-              nothing else doesn&apos;t outrank a player with five solid
-              parallels.
+              <strong>Both graded and raw comps count.</strong> Many
+              ultra-rare parallels (/1s, /5 Refractors) trade actively
+              on the secondary market without ever being graded — we
+              factor those in instead of pretending they don&apos;t
+              exist.
             </li>
             <li>
-              <strong>Log-normalized</strong> against the set&apos;s top
-              player. Top player = 100, others slide on a log curve so
-              order-of-magnitude differences read cleanly without lower
-              ranks squashed to single digits.
+              <strong>Read alongside Gem Rate.</strong> Pop volume is a
+              separate market-validity signal: collectors only pay
+              grading fees on cards they think are worth grading.
             </li>
           </ul>
-          <p className="text-xs text-slate-500">
-            The Gem Rate column adds a separate market-validity signal:
-            collectors only pay grading fees on cards they think are
-            worth grading, so high pop volume = real demand. Both
-            columns are designed to be read together.
-          </p>
         </div>
       </div>
     </div>

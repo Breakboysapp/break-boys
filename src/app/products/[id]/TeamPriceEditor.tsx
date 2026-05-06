@@ -56,6 +56,7 @@ export default function TeamPriceEditor({
   playerBreakdownRows,
   cards,
   chaseCards,
+  trendDays,
 }: {
   productId: string;
   initialBoxPriceCents: number | null;
@@ -72,6 +73,11 @@ export default function TeamPriceEditor({
    *  the PC importer; cards without PC data have null prices/pop and are
    *  filtered out by the Chase rollup. */
   chaseCards: ChaseCard[];
+  /** Set-wide trend window in days — how far back the OLDEST snapshot
+   *  goes. Drives the column header label ("Trend (15d)" / "Trend (1d)")
+   *  so the user knows the period they're looking at without us having
+   *  to mock up artificial 7d/30d windows we don't yet have data for. */
+  trendDays?: number;
 }) {
   const router = useRouter();
   const [boxPrice, setBoxPrice] = useState(centsToDisplay(initialBoxPriceCents));
@@ -157,7 +163,7 @@ export default function TeamPriceEditor({
           cards={cards}
         />
       ) : (
-        <ChaseScoreboard cards={chaseCards} />
+        <ChaseScoreboard cards={chaseCards} trendDays={trendDays} />
       )}
 
       {/* Pricing controls — box price + a passive market-freshness label.
