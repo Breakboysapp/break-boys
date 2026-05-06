@@ -23,10 +23,6 @@ export type ChaseCard = {
   popG10: number | null;
   popTotal: number | null;
   imageUrl: string | null;
-  /** % change in effective value from the earliest CardPriceSnapshot
-   *  on this card to the current price. null when we have <2 snapshots
-   *  for this card (price hasn't moved yet, or just baselined today). */
-  trendPct?: number | null;
 };
 
 type PlayerRollup = {
@@ -36,9 +32,12 @@ type PlayerRollup = {
    * rare since manual checklist uploads carry real teams. */
   team: string;
   cardCount: number;
-  /** % change of the player's TOP card's effective value over the
-   * snapshot window. null when no priced card has trend data yet. */
-  topCardTrendPct: number | null;
+  /** % change of the player's overall market basket over the snapshot
+   * window — not just the top card. Card-Ladder-index style:
+   * aggregates all of the player's priced cards' movements into a
+   * single market-direction number. Filled in from the playerTrends
+   * map after rollup. */
+  marketTrendPct: number | null;
   /** Highest PSA 10 across this player's cards. Drives the score —
    *  Card Ladder's player-index logic: a /1 Superfractor selling for
    *  $50k IS a market signal that lifts the player's whole market,
@@ -105,7 +104,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
         topVariation: null,
         topCardNumber: "",
         topImageUrl: null,
-        topCardTrendPct: null,
+        marketTrendPct: null,
         medianPsa10Cents: 0,
         marketScore: 0,
         popG10Sum: 0,
@@ -126,11 +125,6 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       row.topVariation = c.variation;
       row.topCardNumber = c.cardNumber;
       row.topImageUrl = c.imageUrl;
-      // Lock the trend to the top card whenever we promote a new top.
-      // If that card has no snapshot baseline yet (most common case
-      // until the cron has run a few days) we leave it null and the
-      // column shows "—" for the player.
-      row.topCardTrendPct = c.trendPct ?? null;
     }
     if (c.popG10 != null) row.popG10Sum += c.popG10;
     if (c.popTotal != null) row.popTotalSum += c.popTotal;
@@ -167,19 +161,37 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
 
 export default function ChaseScoreboard({
   cards,
+  playerTrends,
   trendDays,
 }: {
   cards: ChaseCard[];
+  playerTrends?: Record<string, number | null>;
   trendDays?: number;
 }) {
-  const players = useMemo(() => rollupByPlayer(cards), [cards]);
+  const players = useMemo(() => {
+    const rollup = rollupByPlayer(cards);
+    // Inject per-player trend after rollup. Trend is computed
+    // server-side across the full priced-card basket (not just the
+    // top card) so the value here reflects the player's overall
+    // market direction, similar to a Card Ladder player index.
+    if (playerTrends) {
+      for (const r of rollup) {
+        const pct = playerTrends[r.playerName];
+        if (pct != null && Number.isFinite(pct)) {
+          r.marketTrendPct = pct;
+        }
+      }
+    }
+    return rollup;
+  }, [cards, playerTrends]);
   const top20 = players.slice(0, 20);
   const hasAnyValue = top20.some((p) => p.topPsa10Cents > 0);
   const hasAnyPop = top20.some((p) => p.popTotalSum > 0);
   // Only show Trend column when at least one player has trend data
-  // (i.e. ≥2 snapshots on their top card). Day-1 of tracking nothing
-  // shows; column fills in as the cron runs each morning.
-  const hasAnyTrend = top20.some((p) => p.topCardTrendPct != null);
+  // (i.e. ≥2 snapshots on at least one of their priced cards). Day-1
+  // of tracking nothing shows; column fills in as the cron runs each
+  // morning.
+  const hasAnyTrend = top20.some((p) => p.marketTrendPct != null);
   const trendLabel =
     trendDays != null && trendDays >= 1
       ? `${Math.round(trendDays)}D Trend`
@@ -329,23 +341,23 @@ export default function ChaseScoreboard({
                     <td
                       className="w-20 min-w-[80px] px-3 py-2 text-right tabular-nums"
                       title={
-                        p.topCardTrendPct != null
-                          ? `${p.topCardTrendPct.toFixed(1)}% change on this player's top card over the snapshot window`
-                          : "No trend data yet for this player's top card."
+                        p.marketTrendPct != null
+                          ? `${p.marketTrendPct.toFixed(1)}% change in this player's overall market basket over the snapshot window`
+                          : "No trend data yet for this player's basket."
                       }
                     >
-                      {p.topCardTrendPct != null ? (
+                      {p.marketTrendPct != null ? (
                         <span
                           className={`text-[12px] font-bold ${
-                            p.topCardTrendPct > 0
+                            p.marketTrendPct > 0
                               ? "text-emerald-600"
-                              : p.topCardTrendPct < 0
+                              : p.marketTrendPct < 0
                                 ? "text-accent"
                                 : "text-slate-400"
                           }`}
                         >
-                          {p.topCardTrendPct > 0 ? "↑" : p.topCardTrendPct < 0 ? "↓" : "="}
-                          {Math.abs(p.topCardTrendPct).toFixed(1)}%
+                          {p.marketTrendPct > 0 ? "↑" : p.marketTrendPct < 0 ? "↓" : "="}
+                          {Math.abs(p.marketTrendPct).toFixed(1)}%
                         </span>
                       ) : (
                         <span className="text-slate-300">—</span>
