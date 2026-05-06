@@ -69,13 +69,25 @@ function median(nums: number[]): number {
     : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// Per-card effective value: PSA 10 if PC has the comp, otherwise
+// raw × 6. Lets cards with raw-only comps (Arnold's BD-30 Black /1
+// at $3K raw, no graded comp yet) still feed the player's blend. 6
+// is conservative — high-end auto chase often sells at 10-15× raw
+// graded, but underestimating beats over-inflating un-traded cards.
+const RAW_TO_GRADED_MULT = 6;
+function effectiveValue(c: ChaseCard): number {
+  const psa = c.psa10Cents ?? 0;
+  const raw = (c.ungradedCents ?? 0) * RAW_TO_GRADED_MULT;
+  return Math.max(psa, raw);
+}
+
 function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
   const m = new Map<
     string,
     PlayerRollup & { _psa10s: number[] }
   >();
   for (const c of cards) {
-    const psa10 = c.psa10Cents ?? 0;
+    const psa10 = effectiveValue(c);
     let row = m.get(c.playerName);
     if (!row) {
       row = {
@@ -384,14 +396,22 @@ function MarketScoreExplainer({ onClose }: { onClose: () => void }) {
               Formula
             </div>
             <code className="mt-1 block whitespace-pre-wrap font-mono text-[11px] text-ink">
-              blend = log(top PSA 10 + 1) × 0.6
-                  + log(median PSA 10 + 1) × 0.4{"\n"}
+              per-card value = max(PSA 10, raw × 6){"\n"}
+              blend = log(top + 1) × 0.6 + log(median + 1) × 0.4{"\n"}
               score = round(blend / set_max_blend × 100)
             </code>
           </div>
           <ul className="space-y-1.5 text-[13px]">
             <li>
-              <strong>60% top PSA 10</strong> — the chase signal. A
+              <strong>Per-card value</strong> blends actual PSA 10 sales
+              with raw comps — when PriceCharting has a graded sale we
+              use it; for chase cards that haven&apos;t traded graded yet
+              (most /1s, /5 Refractors), we estimate from raw × 6. Stops
+              undercounting players whose ultra-rare parallels exist on
+              the secondary market but haven&apos;t been formally graded.
+            </li>
+            <li>
+              <strong>60% top value</strong> — the chase signal. A
               Superfractor /1 selling at $50K tells the market this
               player&apos;s cards are worth more across the board.
             </li>
