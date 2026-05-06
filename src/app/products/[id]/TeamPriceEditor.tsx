@@ -56,6 +56,7 @@ export default function TeamPriceEditor({
   playerBreakdownRows,
   cards,
   chaseCards,
+  playerTrends,
   trendDays,
 }: {
   productId: string;
@@ -73,6 +74,11 @@ export default function TeamPriceEditor({
    *  the PC importer; cards without PC data have null prices/pop and are
    *  filtered out by the Chase rollup. */
   chaseCards: ChaseCard[];
+  /** Per-player overall market trend (% change of player's basket of
+   *  priced cards from earliest snapshot to current). Card-Ladder-
+   *  index style — captures whole-portfolio movement, not single-card
+   *  noise. Indexed by playerName. */
+  playerTrends?: Record<string, number | null>;
   /** Set-wide trend window in days — how far back the OLDEST snapshot
    *  goes. Drives the column header label ("Trend (15d)" / "Trend (1d)")
    *  so the user knows the period they're looking at without us having
@@ -163,7 +169,11 @@ export default function TeamPriceEditor({
           cards={cards}
         />
       ) : (
-        <ChaseScoreboard cards={chaseCards} trendDays={trendDays} />
+        <ChaseScoreboard
+          cards={chaseCards}
+          playerTrends={playerTrends}
+          trendDays={trendDays}
+        />
       )}
 
       {/* Pricing controls — box price + a passive market-freshness label.

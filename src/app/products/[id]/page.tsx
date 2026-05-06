@@ -117,24 +117,62 @@ export default async function ProductPage({
   const RAW_TO_GRADED = 6;
   const eff = (psa: number | null, raw: number | null) =>
     Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
-  const cardTrend = new Map<
-    string,
-    { pct: number; daysSpan: number }
-  >();
   const now = new Date();
+  // Per-PLAYER trend — % change in the player's overall market (their
+  // basket of priced cards), not just their top card. Mirrors how
+  // Card Ladder publishes player indexes: the whole portfolio's
+  // movement, weighted by chase value plus depth, not a single card's
+  // sale.
+  //
+  // For each card belonging to the player:
+  //   - "earlier" value = earliest CardPriceSnapshot if we have one,
+  //     otherwise current value (no snapshot = no evidence of change)
+  //   - "current" value = today's effective value
+  // Player's market = top + median of those values across all priced
+  // cards. Trend = % change of that market figure.
+  const median = (a: number[]) => {
+    if (a.length === 0) return 0;
+    const s = [...a].sort((x, y) => x - y);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  const cardsByPlayer = new Map<string, typeof product.cards>();
   for (const c of product.cards) {
-    const earliest = earliestSnapshot.get(c.id);
-    if (!earliest) continue;
-    const baseline = eff(earliest.psa10Cents, earliest.ungradedCents);
-    const current = eff(c.psa10Cents, c.ungradedCents);
-    if (baseline <= 0) continue;
-    const pct = ((current - baseline) / baseline) * 100;
-    const daysSpan =
-      (now.getTime() - earliest.capturedAt.getTime()) / 86_400_000;
-    cardTrend.set(c.id, { pct, daysSpan });
+    const arr = cardsByPlayer.get(c.playerName) ?? [];
+    arr.push(c);
+    cardsByPlayer.set(c.playerName, arr);
   }
-  // Set-wide max snapshot age, used to label the trend column with
-  // the actual time span we're showing ("Trend (15d)" or "Trend (1d)").
+  const playerTrends: Record<string, number | null> = {};
+  for (const [playerName, playerCards] of cardsByPlayer) {
+    const currentValues: number[] = [];
+    const earlierValues: number[] = [];
+    for (const c of playerCards) {
+      const current = eff(c.psa10Cents, c.ungradedCents);
+      if (current <= 0) continue; // not priced — skip
+      currentValues.push(current);
+      const snap = earliestSnapshot.get(c.id);
+      const earlier = snap
+        ? eff(snap.psa10Cents, snap.ungradedCents)
+        : current;
+      earlierValues.push(earlier);
+    }
+    if (currentValues.length === 0 || earlierValues.length === 0) {
+      playerTrends[playerName] = null;
+      continue;
+    }
+    const earlierMarket =
+      Math.max(...earlierValues) + median(earlierValues);
+    const currentMarket =
+      Math.max(...currentValues) + median(currentValues);
+    if (earlierMarket <= 0 || earlierMarket === currentMarket) {
+      playerTrends[playerName] = null;
+      continue;
+    }
+    playerTrends[playerName] =
+      ((currentMarket - earlierMarket) / earlierMarket) * 100;
+  }
+  // Set-wide max snapshot age, used to label the trend column with the
+  // actual time span we're showing ("15D Trend" / "1D Trend").
   const trendMaxDays = [...earliestSnapshot.values()].reduce(
     (max, s) => {
       const d = (now.getTime() - s.capturedAt.getTime()) / 86_400_000;
@@ -277,8 +315,8 @@ export default async function ProductPage({
                   imageUrl: c.imageUrl,
                   popG10: c.popG10,
                   popTotal: c.popTotal,
-                  trendPct: cardTrend.get(c.id)?.pct ?? null,
                 }))}
+                playerTrends={playerTrends}
                 trendDays={trendMaxDays}
               />
             </section>
