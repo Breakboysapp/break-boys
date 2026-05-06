@@ -28,11 +28,12 @@ import {
 } from "@/lib/sources/pricing/pricecharting-importer";
 
 export const dynamic = "force-dynamic";
-// Vercel Hobby plan caps serverless functions at 300s. A single full
-// Topps Chrome import runs ~3 min so this fits with margin. If
-// TRACKED_SLUGS ever grows past what fits in 300s, split into per-set
-// cron entries (one schedule per slug) rather than one omnibus cron.
-export const maxDuration = 300;
+// Pro plan supports up to 800s. Set to 800 so a fresh full import
+// across all TRACKED_SLUGS (Chrome base + auto + Sapphire + Bowman
+// base + 2 auto slugs) finishes in one invocation. Team-inferred
+// enrichment dominates wall time on first runs; subsequent runs are
+// mostly fast updates and finish well inside the budget.
+export const maxDuration = 800;
 
 type AuthResult = { ok: true } | { ok: false; reason: string };
 
