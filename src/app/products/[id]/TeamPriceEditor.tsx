@@ -27,6 +27,11 @@ type BreakdownRow = {
   totalPotentialCents: number;
   cardsWithMarket: number;
   maxPotentialCents: number;
+  /** 0-100 team market score injected by page.tsx. Aggregates per-player
+   * marketScore (Card-Ladder blend) over the team's roster. Top team
+   * pinned at 100, others slide on a log curve. Optional — older code
+   * paths don't populate it; UI hides the column when no row has data. */
+  marketScore?: number;
 };
 
 type CardLite = {

@@ -65,6 +65,22 @@ export default async function ProductPage({
   const algorithm = summarizeAlgorithmFor(product.cards);
   const teamBreakdown = computeBreakdown(product.cards, "team");
   const playerBreakdown = computeBreakdown(product.cards, "playerName");
+
+  // Team Market Score — aggregates each team's roster of players by
+  // their per-player marketScore (Card-Ladder-style blend on PSA 10
+  // prices). Drives the new "Market" column on the Team Scoreboard.
+  // Mirrors the Chase view's player rollup math: log(top + 1) * 0.6 +
+  // log(median + 1) * 0.4, then sum unique player blends per team and
+  // normalize across teams (top team = 100). Players with zero priced
+  // cards contribute nothing — keeps the score honest about market data
+  // coverage in this set.
+  const teamMarketScores = computeTeamMarketScores(product.cards);
+  // Inject marketScore into each team breakdown row. Keys by team name
+  // so re-ordering / filtering on the client doesn't drift.
+  for (const r of teamBreakdown.rows) {
+    (r as Record<string, unknown>).marketScore =
+      teamMarketScores.get(r.name) ?? 0;
+  }
   const totalContentScore = teamBreakdown.rows.reduce(
     (s, r) => s + r.totalScore,
     0,
@@ -217,6 +233,72 @@ export default async function ProductPage({
       )}
     </div>
   );
+}
+
+/**
+ * Compute a 0-100 Market Score per team. Mirrors the Chase view's
+ * per-player blend (log(top + 1) * 0.6 + log(median + 1) * 0.4) and
+ * aggregates by team:
+ *
+ *   1. Group cards by playerName, take each player's top + median
+ *      psa10Cents across their parallels in this set.
+ *   2. Compute each player's blend (their "market index" within the set).
+ *   3. Sum unique player blends per team. Players with no priced cards
+ *      contribute zero — coverage gaps don't punish the team unfairly,
+ *      they just leave headroom.
+ *   4. Normalize across teams so the top team = 100.
+ *
+ * Returns a Map<teamName, score 0-100>. Empty cards array → empty map.
+ */
+function computeTeamMarketScores(
+  cards: Array<{
+    team: string;
+    playerName: string;
+    psa10Cents: number | null;
+  }>,
+): Map<string, number> {
+  // Per-player PSA 10 prices.
+  const playerPsa10s = new Map<string, number[]>();
+  // Player → team mapping (first non-placeholder team encountered).
+  const playerTeam = new Map<string, string>();
+  for (const c of cards) {
+    if (c.psa10Cents != null && c.psa10Cents > 0) {
+      const arr = playerPsa10s.get(c.playerName) ?? [];
+      arr.push(c.psa10Cents);
+      playerPsa10s.set(c.playerName, arr);
+    }
+    if (c.team && c.team !== "—" && !playerTeam.has(c.playerName)) {
+      playerTeam.set(c.playerName, c.team);
+    }
+  }
+  function median(a: number[]): number {
+    if (a.length === 0) return 0;
+    const s = [...a].sort((x, y) => x - y);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  // Per-player blend.
+  const playerBlend = new Map<string, number>();
+  for (const [name, prices] of playerPsa10s.entries()) {
+    const top = Math.max(...prices);
+    const med = median(prices);
+    playerBlend.set(name, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
+  }
+  // Aggregate by team.
+  const teamRaw = new Map<string, number>();
+  for (const [name, blend] of playerBlend.entries()) {
+    const team = playerTeam.get(name);
+    if (!team) continue;
+    teamRaw.set(team, (teamRaw.get(team) ?? 0) + blend);
+  }
+  // Normalize to 0-100.
+  const max = Math.max(0, ...teamRaw.values());
+  const out = new Map<string, number>();
+  if (max === 0) return out;
+  for (const [team, raw] of teamRaw.entries()) {
+    out.set(team, Math.max(1, Math.round((raw / max) * 100)));
+  }
+  return out;
 }
 
 /**

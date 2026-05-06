@@ -25,6 +25,11 @@ type Row = {
   totalPotentialCents: number;
   cardsWithMarket: number;
   maxPotentialCents: number;
+  /** 0-100 Market Score (only populated for the team view). Aggregates
+   * per-player marketScore across this team's roster. Top team pinned
+   * at 100. Hidden in the Player view — players already have their own
+   * market score on the Chase scoreboard. */
+  marketScore?: number;
 };
 
 type SortBy = "score" | "value";
@@ -80,6 +85,11 @@ export default function TeamBreakdownSheet({
   // here as the displayed number — it's too noisy across player tiers
   // (an Ohtani auto = $2500, a journeyman auto = $50, both class=10).
   const anyValueData = rawRows.some((r) => r.cardsWithMarket > 0);
+  // Only show Market Score column when (a) we're on team view AND (b) at
+  // least one row has a non-zero score. Player view hides it because the
+  // Chase scoreboard is the dedicated per-player market view.
+  const showMarketScore =
+    view === "team" && rawRows.some((r) => (r.marketScore ?? 0) > 0);
   const subjectLabel = view === "team" ? "Team" : "Player";
   // Team names get abbreviated on mobile (NYY, LAD, etc.), so the column
   // only needs ~64px on small screens. Player names don't have a clean
@@ -242,6 +252,14 @@ export default function TeamBreakdownSheet({
               >
                 Break Score
               </th>
+              {showMarketScore && (
+                <th
+                  className="w-24 min-w-[96px] bg-ink px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                  title="Team Market Score: 0-100 aggregate of each player's market index (Card-Ladder-style PSA 10 blend) summed across the team's roster, normalized so the top team in the set = 100. Read this alongside Break Score — the two answer different questions: 'how many points worth of card-types are on this team' vs 'how much real market value lives on this team.'"
+                >
+                  Market
+                </th>
+              )}
               {anyValueData && (
                 <th
                   className={`w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
@@ -320,6 +338,29 @@ export default function TeamBreakdownSheet({
                     >
                       {r.totalScore}
                     </td>
+                    {showMarketScore && (
+                      <td
+                        className="w-24 min-w-[96px] bg-white px-3 py-2 text-right tabular-nums"
+                        title={
+                          (r.marketScore ?? 0) > 0
+                            ? `Market Score ${r.marketScore}/100 — aggregate of player marketScores on this team, normalized so the top team in this set is 100.`
+                            : "No market data on this team's roster yet."
+                        }
+                      >
+                        {(r.marketScore ?? 0) > 0 ? (
+                          <>
+                            <span className="text-base font-extrabold text-ink">
+                              {r.marketScore}
+                            </span>
+                            <span className="text-[10px] font-medium text-slate-400">
+                              /100
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
                     {anyValueData && (
                       <td
                         className={`w-28 min-w-[112px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
@@ -409,6 +450,14 @@ export default function TeamBreakdownSheet({
                         >
                           {p.totalScore}
                         </td>
+                        {showMarketScore && (
+                          // Player sub-rows have no per-player Market
+                          // Score in the team view (the Chase
+                          // scoreboard is the per-player view). Empty
+                          // cell keeps grid widths aligned with parent
+                          // team rows.
+                          <td className="w-24 min-w-[96px] bg-slate-50 px-3 py-1.5" />
+                        )}
                         {anyValueData && (
                           <td
                             className={`w-28 min-w-[112px] px-3 py-1.5 text-right text-[10px] text-slate-300 ${
@@ -451,6 +500,13 @@ export default function TeamBreakdownSheet({
               >
                 {grandTotalScore}
               </td>
+              {showMarketScore && (
+                // Market Score is normalized 0-100 per team, so a
+                // grand total doesn't carry meaning the way Break
+                // Score's sum does. Leave the total cell blank but
+                // present so the column stays aligned.
+                <td className="w-24 min-w-[96px] bg-ink px-3 py-2" />
+              )}
               {anyValueData && (
                 <td
                   className={`w-28 min-w-[112px] px-3 py-2 text-right tabular-nums text-white ${
