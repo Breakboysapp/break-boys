@@ -347,18 +347,20 @@ export async function importSet(
       ...popFields,
     };
     // Match priority: PC id (exact, from prior runs) → exact card key
-    // (cardNumber + variation) → looser player+cardNumber. The looser
-    // match catches cases where the manual checklist's variation
-    // string differs from PC's parsed variation ("Refractors" vs
-    // "Refractor", etc.).
+    // (cardNumber + variation, normalized).
+    //
+    // We DELIBERATELY don't fall back to (playerName + cardNumber)
+    // matching anymore. That fallback collapses every parallel of a
+    // player's same-numbered card onto one manual slot — Ohtani's PC
+    // base, Refractor, X-Fractor, Pink, Red Refractor, Superfractor
+    // all hash to the same `ohtani|1` key, only the last one's data
+    // sticks, and the rest of his parallels never get prices. Without
+    // the fallback, anything that doesn't match by exact key falls
+    // through to team-inferred enrichment below, which creates new
+    // rows so each parallel gets its own price.
     const existingId =
       existingByPCId.get(c.id) ??
-      existingByCardKey.get(
-        cardKey(parsed.cardNumber, parsed.variation),
-      ) ??
-      existingByPlayerCard.get(
-        playerCardKey(parsed.playerName, parsed.cardNumber),
-      );
+      existingByCardKey.get(cardKey(parsed.cardNumber, parsed.variation));
 
     if (existingId) {
       // Update path. Don't write team / playerName / cardNumber /
