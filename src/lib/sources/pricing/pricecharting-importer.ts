@@ -62,6 +62,29 @@ export const TRACKED_SLUGS: SlugMeta[] = [
     name: "2025 Bowman Draft Baseball",
     sport: "MLB",
     manufacturer: "Topps",
+    // Retrofractor in Bowman Draft is the legends/HoF tribute parallel
+    // (Lou Brock #BD-202, Sadaharu Oh #BD-201, etc.). Excluding them
+    // from the prospect-focused product so legends don't crowd out the
+    // 2025 draft class in the Chase view.
+    excludeVariation: /retrofractor/i,
+  },
+  // Bowman Draft Chrome Prospect Autograph — separate SCP slug for
+  // the CPA-XX auto cards. Same name+sport as the base set so the
+  // adoption logic merges this slug's cards into the same Product
+  // row, surfacing prospects' autographs (the real chase) on the
+  // Bowman Draft Chase view.
+  {
+    slug: "baseball-cards-2025-bowman-draft-chrome-prospect-autograph",
+    name: "2025 Bowman Draft Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
+  },
+  // Bowman Draft Mega Box Autograph (BMA-XX) — same merge pattern.
+  {
+    slug: "baseball-cards-2025-bowman-draft-chrome-prospect-mega-autograph",
+    name: "2025 Bowman Draft Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
   },
 ];
 
