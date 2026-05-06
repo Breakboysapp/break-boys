@@ -32,7 +32,7 @@ type Row = {
   marketScore?: number;
 };
 
-type SortBy = "score" | "value";
+type SortBy = "score" | "value" | "market";
 
 type CardLite = {
   team: string;
@@ -62,10 +62,12 @@ export default function TeamBreakdownSheet({
   const [bucketDetail, setBucketDetail] = useState<string | null>(null);
 
   const rawRows = view === "team" ? teamRows : playerRows;
-  // Re-sort rows in place each render. Score/Value selection drives the
-  // ordering; the column data itself is the same.
-  // For value sort, rows with no confirmed market data fall to the bottom
-  // ordered by score (so the table doesn't just dump them randomly).
+  // Re-sort rows in place each render. Score / Value / Market selection
+  // drives the ordering; the column data itself is the same. For Value
+  // sort, rows with no confirmed market data fall to the bottom ordered
+  // by score; for Market sort, rows with marketScore=0 fall to the
+  // bottom likewise. Tiebreaks always go by Break Score so rows in a
+  // bucket don't shuffle randomly between renders.
   const rows = useMemo(() => {
     const copy = [...rawRows];
     if (sortBy === "value") {
@@ -73,6 +75,13 @@ export default function TeamBreakdownSheet({
         if (b.confirmedMarketCents !== a.confirmedMarketCents) {
           return b.confirmedMarketCents - a.confirmedMarketCents;
         }
+        return b.totalScore - a.totalScore;
+      });
+    } else if (sortBy === "market") {
+      copy.sort((a, b) => {
+        const am = a.marketScore ?? 0;
+        const bm = b.marketScore ?? 0;
+        if (bm !== am) return bm - am;
         return b.totalScore - a.totalScore;
       });
     } else {
@@ -142,8 +151,12 @@ export default function TeamBreakdownSheet({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           <ViewToggle current={view} onChange={setView} />
-          {anyValueData && (
-            <SortToggle current={sortBy} onChange={setSortBy} />
+          {(anyValueData || showMarketScore) && (
+            <SortToggle
+              current={sortBy}
+              onChange={setSortBy}
+              showMarket={showMarketScore}
+            />
           )}
           <div className="text-[10px] text-slate-500 sm:text-[11px]">
             {rows.length} {view === "team" ? "teams" : "players"} ·{" "}
@@ -254,7 +267,9 @@ export default function TeamBreakdownSheet({
               </th>
               {showMarketScore && (
                 <th
-                  className="w-24 min-w-[96px] bg-ink px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                  className={`w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                    sortBy === "market" ? "bg-accent" : "bg-ink"
+                  }`}
                   title="Team Market Score: 0-100 aggregate of each player's market index (Card-Ladder-style PSA 10 blend) summed across the team's roster, normalized so the top team in the set = 100. Read this alongside Break Score — the two answer different questions: 'how many points worth of card-types are on this team' vs 'how much real market value lives on this team.'"
                 >
                   Market
@@ -340,7 +355,9 @@ export default function TeamBreakdownSheet({
                     </td>
                     {showMarketScore && (
                       <td
-                        className="w-24 min-w-[96px] bg-white px-3 py-2 text-right tabular-nums"
+                        className={`w-24 min-w-[96px] px-3 py-2 text-right tabular-nums ${
+                          sortBy === "market" ? "bg-accent-tint" : "bg-white"
+                        }`}
                         title={
                           (r.marketScore ?? 0) > 0
                             ? `Market Score ${r.marketScore}/100 — aggregate of player marketScores on this team, normalized so the top team in this set is 100.`
@@ -501,11 +518,17 @@ export default function TeamBreakdownSheet({
                 {grandTotalScore}
               </td>
               {showMarketScore && (
-                // Market Score is normalized 0-100 per team, so a
-                // grand total doesn't carry meaning the way Break
-                // Score's sum does. Leave the total cell blank but
-                // present so the column stays aligned.
-                <td className="w-24 min-w-[96px] bg-ink px-3 py-2" />
+                // Market Score is normalized 0-100 per team, so a grand
+                // total doesn't carry meaning the way Break Score's
+                // sum does. Leave the total cell blank but present so
+                // the column stays aligned. Highlight the cell when
+                // sorted by Market to keep the column highlight
+                // consistent with the rest of the table.
+                <td
+                  className={`w-24 min-w-[96px] px-3 py-2 ${
+                    sortBy === "market" ? "bg-accent" : "bg-ink"
+                  }`}
+                />
               )}
               {anyValueData && (
                 <td
@@ -591,9 +614,11 @@ function ViewToggle({
 function SortToggle({
   current,
   onChange,
+  showMarket,
 }: {
   current: SortBy;
   onChange: (v: SortBy) => void;
+  showMarket: boolean;
 }) {
   return (
     <div className="inline-flex rounded-md bg-white p-0.5 ring-1 ring-slate-200 text-[11px] font-bold uppercase tracking-tight-2">
@@ -603,6 +628,14 @@ function SortToggle({
       >
         Score
       </ToggleButton>
+      {showMarket && (
+        <ToggleButton
+          active={current === "market"}
+          onClick={() => onChange("market")}
+        >
+          Market
+        </ToggleButton>
+      )}
       <ToggleButton
         active={current === "value"}
         onClick={() => onChange("value")}
