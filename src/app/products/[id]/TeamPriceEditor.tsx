@@ -9,6 +9,7 @@ import {
   formatRelativeTime,
 } from "@/lib/money";
 import TeamBreakdownSheet from "./TeamBreakdownSheet";
+import ChaseScoreboard, { type ChaseCard } from "./ChaseScoreboard";
 
 type AlgorithmBucket = {
   label: string;
@@ -36,6 +37,8 @@ type CardLite = {
   marketValueCents: number | null;
 };
 
+type Scoreboard = "team" | "chase";
+
 export default function TeamPriceEditor({
   productId,
   initialBoxPriceCents,
@@ -47,6 +50,7 @@ export default function TeamPriceEditor({
   teamBreakdownRows,
   playerBreakdownRows,
   cards,
+  chaseCards,
 }: {
   productId: string;
   initialBoxPriceCents: number | null;
@@ -59,12 +63,22 @@ export default function TeamPriceEditor({
   teamBreakdownRows: BreakdownRow[];
   playerBreakdownRows: BreakdownRow[];
   cards: CardLite[];
+  /** Per-card PriceCharting data for the Chase scoreboard. Sourced from
+   *  the PC importer; cards without PC data have null prices/pop and are
+   *  filtered out by the Chase rollup. */
+  chaseCards: ChaseCard[];
 }) {
   const router = useRouter();
   const [boxPrice, setBoxPrice] = useState(centsToDisplay(initialBoxPriceCents));
   const [savingBox, setSavingBox] = useState(false);
+  const [scoreboard, setScoreboard] = useState<Scoreboard>("team");
 
   const showMarketBadge = cardsWithMarket > 0;
+  // The Chase view only matters when there's PriceCharting data — show
+  // the toggle only for products that have at least one PSA 10 price.
+  const hasChaseData = chaseCards.some(
+    (c) => c.psa10Cents != null && c.psa10Cents > 0,
+  );
 
   async function saveBoxPrice() {
     setSavingBox(true);
@@ -118,13 +132,28 @@ export default function TeamPriceEditor({
         </a>
       )}
 
-      {/* BREAK BOYS SCORECARD — primary visualization, leads the section */}
-      <TeamBreakdownSheet
-        buckets={algorithm}
-        teamRows={teamBreakdownRows}
-        playerRows={playerBreakdownRows}
-        cards={cards}
-      />
+      {/* Scoreboard toggle — Team Scoreboard (existing card-type breakdown
+          per team / player) vs. Chase Scoreboard (top players by PSA 10
+          value, with gem rates from the PC pop report). Only rendered
+          when there's at least one card with PriceCharting data; for
+          products that haven't been imported yet we keep the Team view
+          as the only option, no toggle. */}
+      {hasChaseData && (
+        <div className="flex items-center gap-2">
+          <ScoreboardToggle current={scoreboard} onChange={setScoreboard} />
+        </div>
+      )}
+
+      {scoreboard === "team" ? (
+        <TeamBreakdownSheet
+          buckets={algorithm}
+          teamRows={teamBreakdownRows}
+          playerRows={playerBreakdownRows}
+          cards={cards}
+        />
+      ) : (
+        <ChaseScoreboard cards={chaseCards} />
+      )}
 
       {/* Pricing controls — box price + a passive market-freshness label.
           Market values are refreshed in the background on a schedule
@@ -234,6 +263,47 @@ export default function TeamPriceEditor({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Pill toggle that switches between the existing per-team scoreboard and
+ * the new top-by-value Chase scoreboard. Same visual language as the
+ * team/player toggle inside TeamBreakdownSheet — keeps the chrome
+ * consistent across the section.
+ */
+function ScoreboardToggle({
+  current,
+  onChange,
+}: {
+  current: Scoreboard;
+  onChange: (v: Scoreboard) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md bg-white p-0.5 ring-1 ring-slate-200 text-[11px] font-bold uppercase tracking-tight-2">
+      <button
+        type="button"
+        onClick={() => onChange("team")}
+        className={`rounded px-3 py-1.5 transition ${
+          current === "team"
+            ? "bg-ink text-white"
+            : "text-slate-600 hover:text-ink"
+        }`}
+      >
+        Team Scoreboard
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("chase")}
+        className={`rounded px-3 py-1.5 transition ${
+          current === "chase"
+            ? "bg-accent text-white"
+            : "text-slate-600 hover:text-ink"
+        }`}
+      >
+        Chase
+      </button>
     </div>
   );
 }

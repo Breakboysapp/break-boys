@@ -216,10 +216,12 @@ export default async function HomePage({
         initialQuery={params.q ?? ""}
         facets={[
           // Sport is intentionally NOT in this list — the big
-          // SportQuickJumpRow cards above already cover that filter
-          // (and any other sport beyond NFL/NBA/MLB is rare enough on
-          // this catalog that the dropdown was mostly noise). Year +
-          // Manufacturer stay as compact dropdowns sharing one row.
+          // SportQuickJumpRow cards above already cover that filter.
+          // Year stays as a compact dropdown (years explode quickly on
+          // a multi-decade catalog). Manufacturer is back to bubble
+          // pills since the manufacturer set is small and stable
+          // (Topps, Bowman, Panini, Upper Deck) and tap-to-filter
+          // reads faster than a dropdown.
           {
             label: "Year",
             paramKey: "year",
@@ -232,7 +234,7 @@ export default async function HomePage({
             paramKey: "mfr",
             values: manufacturers,
             selected: mfr,
-            variant: "dropdown",
+            variant: "chips",
           },
         ]}
       />

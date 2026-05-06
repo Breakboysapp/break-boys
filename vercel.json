@@ -4,6 +4,10 @@
     {
       "path": "/api/sync/cardboardconnection",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-pricecharting",
+      "schedule": "0 9 * * *"
     }
   ]
 }

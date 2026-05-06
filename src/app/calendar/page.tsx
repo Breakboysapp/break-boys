@@ -106,7 +106,7 @@ export default async function CalendarPage({
             paramKey: "mfr",
             values: manufacturers,
             selected: mfr,
-            variant: "dropdown",
+            variant: "chips",
           },
         ]}
       />

@@ -13,13 +13,13 @@ datasource db {
 }
 
 model Product {
-  id                  String      @id @default(cuid())
+  id                  String                @id @default(cuid())
   name                String
   sport               String
   manufacturer        String?
   releaseDate         DateTime?
-  releaseStatus       String      @default("announced") // announced | released | delayed | cancelled
-  source              String      @default("manual")    // manual | api:<provider>
+  releaseStatus       String                @default("announced") // announced | released | delayed | cancelled
+  source              String                @default("manual") // manual | api:<provider>
   externalId          String?
   // Total per-buyer slot price for one full break of this product (cents).
   // The only variable in retail pricing — everything else is algorithm.
@@ -32,14 +32,14 @@ model Product {
   mixers              MixerProduct[]
   favorites           UserFavoriteProduct[]
   formats             ProductFormat[]
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @default(now()) @updatedAt
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @default(now()) @updatedAt
 
   @@unique([source, externalId], name: "source_externalId")
 }
 
 model Card {
-  id               String     @id @default(cuid())
+  id               String              @id @default(cuid())
   productId        String
   team             String
   playerName       String
@@ -51,19 +51,66 @@ model Card {
   marketValueCents Int?
   marketSampleSize Int?
   marketObservedAt DateTime?
-  product          Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // PriceCharting / SportsCardsPro per-card data. All optional —
+  // populated by scripts/import-pricecharting-set.ts when the card
+  // matches a PriceCharting listing. Prices in cents (consistent with
+  // marketValueCents / boxPriceCents elsewhere in the schema).
+  pricechartingId  String?             @unique
+  ungradedCents    Int? // PC price1 — raw / loose
+  psa10Cents       Int? // PC price2 — graded gem
+  psa9Cents        Int? // PC price3 — graded mint
+  printRun         Int? // 0 or null = unnumbered; 5 = /5 etc.
+  imageUrl         String?
+  pricesUpdatedAt  DateTime?
+  // PSA + CGC pop counts (combined, per pricecharting.com/pop). Snapshot
+  // in time — re-imported as a batch since pop counts shift weekly as
+  // grading slabs land. popTotal = sum of grade cells; gem rate is
+  // computed at query time as popG10 / popTotal.
+  popG6            Int?
+  popG7            Int?
+  popG8            Int?
+  popG9            Int?
+  popG10           Int?
+  popTotal         Int?
+  popUpdatedAt     DateTime?
+  product          Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
   userCards        UserCard[]
+  priceSnapshots   CardPriceSnapshot[]
 
   @@index([productId, team])
+  @@index([productId, psa10Cents])
+}
+
+// Daily snapshot of a card's prices, written by the PriceCharting
+// importer when current values diverge from the last snapshot. The
+// existing Card.psa10Cents / ungradedCents / psa9Cents fields hold
+// the LATEST values for fast reads; this table is the historical
+// log used for trend math (player growth/decline, 7d/30d Δ%).
+//
+// Why a separate table instead of versioned columns: querying
+// "what was Soto's PSA 10 thirty days ago" is a simple range query
+// on capturedAt, and we don't need any of this data on the hot path
+// when rendering the scorecard. Unbounded log; we trim with a cron
+// job once it grows big enough to matter.
+model CardPriceSnapshot {
+  id            String   @id @default(cuid())
+  cardId        String
+  capturedAt    DateTime @default(now())
+  ungradedCents Int?
+  psa10Cents    Int?
+  psa9Cents     Int?
+  card          Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, capturedAt])
 }
 
 model TeamPrice {
-  id             String    @id @default(cuid())
-  productId      String
-  team           String
+  id              String    @id @default(cuid())
+  productId       String
+  team            String
   // Breaker's contract cost for this team slot (cents). The one human input
   // on this row — everything else is algorithmic.
-  wholesaleCents Int?
+  wholesaleCents  Int?
   // Legacy team-level eBay aggregate from Phase-2 v1 (per-team listing index).
   // Kept for backwards compat; the live signal now lives on Card.marketValueCents
   // and is rolled up at query time. Safe to remove later.
@@ -96,13 +143,13 @@ model UserBreak {
 // breakerHandle is optional metadata so mixers can be attributed to a
 // specific breaker (KKSPORTSCARDS) for sharing.
 model Mixer {
-  id            String          @id @default(cuid())
-  userId        String          @default("local")
+  id            String         @id @default(cuid())
+  userId        String         @default("local")
   name          String
   breakerHandle String?
   boxPriceCents Int?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @default(now()) @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
   products      MixerProduct[]
   picks         MixerPick[]
 
@@ -152,26 +199,26 @@ model UserCard {
 // and read exclusivity notes ("Mega Box: 2 exclusive Chrome packs").
 // Card-level format restrictions come in Phase 2.
 model ProductFormat {
-  id              String   @id @default(cuid())
-  productId       String
+  id           String   @id @default(cuid())
+  productId    String
   // Display name. Free-text rather than enum so unusual formats
   // ("Hanger Box", "Vending Box", "FOTL", "Choice Box") fit without
   // a schema change.
-  name            String
-  packsPerBox     Int?
-  cardsPerPack    Int?
+  name         String
+  packsPerBox  Int?
+  cardsPerPack Int?
   // Float because expected autos can be fractional ("avg 1.5 per
   // box for some retail formats").
-  autosPerBox     Float?
+  autosPerBox  Float?
   // Format-specific exclusives, odds caveats, or breaker notes.
   // Free-text — surfaced as a small italics line on the format card.
-  notes           String?
+  notes        String?
   // Sort order on the product page. Lower = leftmost. Tie-break by
   // createdAt ascending.
-  position        Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @default(now()) @updatedAt
-  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([productId, name])
   @@index([productId])
