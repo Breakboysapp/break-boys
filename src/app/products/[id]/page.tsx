@@ -287,12 +287,28 @@ function computeTeamMarketScores(
   for (const [name, prices] of playerPsa10s.entries()) {
     playerValue.set(name, Math.max(...prices) + median(prices));
   }
-  // Team aggregation: TOP player carries full weight, others contribute
-  // at 30%. Models break-room economics — the chase pull is what people
-  // are paying for, depth is a tiebreaker, not a substitute. A roster
-  // with one $13k Kade outranks a roster with twelve $500 mid-tier
-  // guys (sum of medians) the way it should.
-  const DEPTH_WEIGHT = 0.3;
+  // Team aggregation models break-room economics: a roster with 2-3
+  // genuine stars is meaningfully different from one with a single
+  // chase + filler. So we count the top THREE players each at full
+  // weight (chase tier), then long-tail depth (4th+) at 15% as a
+  // tiebreaker.
+  //
+  // Examples on prod (Topps Chrome 2025):
+  //   Yankees (Rice $5k + Judge $4k + Volpe ~$2k) gets credit for
+  //     all 3 stars instead of just Rice.
+  //   Athletics (Kurtz $35k + small) still leads decisively because
+  //     Kurtz alone outweighs other teams' top three combined —
+  //     that's a genuinely runaway market, not a formula artifact.
+  //   Dodgers (Ohtani $16k + Sasaki $7k + Hyeseong $2.5k) climbs
+  //     because all three stars now count.
+  //
+  // The 3-stars cutoff matches the natural shape of break rooms:
+  // most teams have 0-3 names worth chasing, the rest is filler. If
+  // a future set has >3 chase-tier players on one team (super-stacked
+  // roster) the long tail at 15% still rewards that depth, just at a
+  // lower marginal rate.
+  const STAR_TIER_SIZE = 3;
+  const DEPTH_WEIGHT = 0.15;
   const teamPlayers = new Map<string, number[]>();
   for (const [name, value] of playerValue.entries()) {
     const team = playerTeam.get(name);
@@ -304,9 +320,13 @@ function computeTeamMarketScores(
   const teamRaw = new Map<string, number>();
   for (const [team, values] of teamPlayers.entries()) {
     const sorted = [...values].sort((a, b) => b - a);
-    const top = sorted[0] ?? 0;
-    const restSum = sorted.slice(1).reduce((s, v) => s + v, 0);
-    teamRaw.set(team, top + DEPTH_WEIGHT * restSum);
+    const stars = sorted
+      .slice(0, STAR_TIER_SIZE)
+      .reduce((s, v) => s + v, 0);
+    const tail = sorted
+      .slice(STAR_TIER_SIZE)
+      .reduce((s, v) => s + v, 0);
+    teamRaw.set(team, stars + DEPTH_WEIGHT * tail);
   }
   const max = Math.max(0, ...teamRaw.values());
   const out = new Map<string, number>();
