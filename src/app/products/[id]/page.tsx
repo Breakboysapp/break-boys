@@ -184,6 +184,7 @@ export default async function ProductPage({
                 }))}
                 chaseCards={product.cards.map((c) => ({
                   playerName: c.playerName,
+                  team: c.team,
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   ungradedCents: c.ungradedCents,

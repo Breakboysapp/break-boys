@@ -10,6 +10,10 @@ import { formatUsd } from "@/lib/money";
  */
 export type ChaseCard = {
   playerName: string;
+  /** Real team when available ("Los Angeles Dodgers"), or "—" placeholder
+   * for cards the importer couldn't team-infer. Surfaced as part of the
+   * Player column subtitle so users see who the player rolls up under. */
+  team: string;
   cardNumber: string;
   variation: string | null;
   ungradedCents: number | null;
@@ -23,6 +27,10 @@ export type ChaseCard = {
 
 type PlayerRollup = {
   playerName: string;
+  /** First non-placeholder team encountered for this player. "—" only
+   * if every one of their cards has the placeholder; in practice that's
+   * rare since manual checklist uploads carry real teams. */
+  team: string;
   cardCount: number;
   /** Highest PSA 10 across this player's cards. Drives the score —
    *  Card Ladder's player-index logic: a /1 Superfractor selling for
@@ -72,6 +80,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
     if (!row) {
       row = {
         playerName: c.playerName,
+        team: "—",
         cardCount: 0,
         topPsa10Cents: 0,
         topVariation: null,
@@ -87,6 +96,10 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       m.set(c.playerName, row);
     }
     row.cardCount++;
+    // Take the first real team value we encounter — usually the same
+    // for all of a player's cards in a single set unless they were
+    // traded mid-season.
+    if (row.team === "—" && c.team && c.team !== "—") row.team = c.team;
     if (psa10 > 0) row._psa10s.push(psa10);
     if (psa10 > row.topPsa10Cents) {
       row.topPsa10Cents = psa10;
@@ -231,7 +244,14 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                   <td className="px-3 py-2 font-semibold tracking-tight-2">
                     {p.playerName}
                     <div className="text-[10px] font-medium text-slate-400">
-                      {p.cardCount} {p.cardCount === 1 ? "card" : "parallels"} in set
+                      {p.team !== "—" && (
+                        <>
+                          <span className="text-slate-500">{p.team}</span>
+                          <span aria-hidden> · </span>
+                        </>
+                      )}
+                      {p.cardCount}{" "}
+                      {p.cardCount === 1 ? "card" : "parallels"} in set
                     </div>
                   </td>
                   <td className="px-3 py-2 text-[11px] text-slate-600">
