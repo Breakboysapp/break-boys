@@ -187,7 +187,18 @@ export default function TeamBreakdownSheet({
         per-row bg-ink / bg-white fills behind every cell so the
         rendering stays solid even if a cell ever does have a gap.
       */}
-      <div className="isolate max-h-[640px] overflow-auto overscroll-none">
+      {/*
+        overscroll-x-contain (NOT overscroll-none) — earlier this was
+        overscroll-none everywhere to kill iOS rubber-band, but that
+        also stopped vertical scroll from chaining to the page when the
+        cursor sat over the table on desktop. So a user scrolling
+        upward inside the scorecard had to mouse out of it before they
+        could keep scrolling the page. x-contain isolates only the
+        horizontal axis (to prevent the swipe-past-edge bug from
+        earlier), letting vertical scroll-chain back to the page when
+        you reach the top or bottom of the inner scrollbox.
+      */}
+      <div className="isolate max-h-[640px] overflow-auto overscroll-x-contain">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-50 bg-ink text-white">
             <tr className="bg-ink">
