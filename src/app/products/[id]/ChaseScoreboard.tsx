@@ -248,20 +248,35 @@ export default function ChaseScoreboard({
     rollup.sort((a, b) => b.marketScore - a.marketScore);
     return rollup;
   }, [cards, playerGlobalScores, playerTrends]);
-  const top20 = players.slice(0, 20);
+  // Two-tier reveal: top 20 by default (compact, what most users
+  // actually care about), expandable to top 50 via a "See more"
+  // affordance at the bottom of the table. Anything past 50 is
+  // genuinely deep cuts — collectors looking that far down can
+  // jump to the team breakdown for the full roster.
+  const HEAD_LIMIT = 20;
+  const EXPANDED_LIMIT = 50;
+  const [showMore, setShowMore] = useState(false);
+  const visibleLimit = showMore ? EXPANDED_LIMIT : HEAD_LIMIT;
+  const visiblePlayers = players.slice(0, visibleLimit);
+  const totalRanked = players.length;
+  const hasMore = totalRanked > HEAD_LIMIT;
+  const hiddenCount = Math.max(
+    0,
+    Math.min(totalRanked, EXPANDED_LIMIT) - HEAD_LIMIT,
+  );
   // "Has data" = any in-set price OR any global player score. The
   // global score keeps the Chase view useful for brand-new products
   // (Bowman 2026 etc.) where no cards in this set have traded but
   // the players already have hobby-wide market footprint.
   const hasAnyValue =
-    top20.some((p) => p.topPsa10Cents > 0) ||
-    top20.some((p) => p.marketScore > 0);
-  const hasAnyPop = top20.some((p) => p.popTotalSum > 0);
+    visiblePlayers.some((p) => p.topPsa10Cents > 0) ||
+    visiblePlayers.some((p) => p.marketScore > 0);
+  const hasAnyPop = visiblePlayers.some((p) => p.popTotalSum > 0);
   // Only show Trend column when at least one player has trend data
   // (i.e. ≥2 snapshots on at least one of their priced cards). Day-1
   // of tracking nothing shows; column fills in as the cron runs each
   // morning.
-  const hasAnyTrend = top20.some((p) => p.marketTrendPct != null);
+  const hasAnyTrend = visiblePlayers.some((p) => p.marketTrendPct != null);
   const trendLabel =
     trendDays != null && trendDays >= 1
       ? `${Math.round(trendDays)}D Trend`
@@ -294,7 +309,7 @@ export default function ChaseScoreboard({
             Chase
           </div>
           <div className="text-sm font-extrabold leading-tight tracking-tight-3 sm:text-base">
-            TOP 20 BY VALUE
+            TOP {Math.min(visibleLimit, totalRanked)} BY VALUE
           </div>
         </div>
         <div className="text-[10px] text-slate-500 sm:text-[11px]">
@@ -362,7 +377,7 @@ export default function ChaseScoreboard({
             </tr>
           </thead>
           <tbody>
-            {top20.map((p, i) => {
+            {visiblePlayers.map((p, i) => {
               const isTop10 = i < 10;
               return (
                 <tr
@@ -526,6 +541,36 @@ export default function ChaseScoreboard({
           </tbody>
         </table>
       </div>
+
+      {hasMore && (
+        // "See more" reveal — expands the visible list from top 20
+        // to top 50. Same row chrome continues below the divider so
+        // the table feels continuous; the button toggles back to
+        // collapsed when expanded so users can recover the compact
+        // view without scrolling all the way back up.
+        <button
+          type="button"
+          onClick={() => setShowMore((v) => !v)}
+          className="flex w-full items-center justify-center gap-1.5 border-t border-slate-200 bg-bone px-4 py-3 text-[11px] font-bold uppercase tracking-tight-2 text-slate-600 transition hover:bg-slate-100 hover:text-ink"
+        >
+          {showMore ? (
+            <>
+              <span>Show top 20</span>
+              <span aria-hidden>↑</span>
+            </>
+          ) : (
+            <>
+              <span>
+                See {hiddenCount} more
+                {totalRanked > EXPANDED_LIMIT
+                  ? ` (of ${totalRanked} ranked)`
+                  : ""}
+              </span>
+              <span aria-hidden>↓</span>
+            </>
+          )}
+        </button>
+      )}
 
       {explainerOpen && (
         <MarketScoreExplainer onClose={() => setExplainerOpen(false)} />
