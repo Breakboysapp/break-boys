@@ -204,12 +204,17 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
 export default function ChaseScoreboard({
   cards,
   playerGlobalScores,
+  playerInternationalMap,
   playerProspectMap,
   playerTrends,
   trendDays,
 }: {
   cards: ChaseCard[];
   playerGlobalScores?: Record<string, number>;
+  /** Per-player international tag (e.g. "USA", "Japan") from "Anime"-
+   *  style insert cards. Drives a small "Anime: USA" subtitle beneath
+   *  the player name when set. */
+  playerInternationalMap?: Record<string, string>;
   /** Per-player "is prospect?" flag (Bowman-only). Renders a (P)
    *  marker after the player name. Empty / undefined for non-Bowman
    *  products. */
@@ -408,6 +413,19 @@ export default function ChaseScoreboard({
                       >
                         (P)
                       </span>
+                    )}
+                    {playerInternationalMap?.[p.playerName] && (
+                      // International / national-team affiliation from
+                      // an Anime-type insert. Surfaced as a separate
+                      // line so it sits clearly under the player's
+                      // primary name without competing with team /
+                      // parallel info on the next line.
+                      <div
+                        className="text-[10px] font-bold uppercase tracking-tight-2 text-sky-600"
+                        title={`Anime insert places this player on the ${playerInternationalMap[p.playerName]} national team`}
+                      >
+                        Anime · {playerInternationalMap[p.playerName]}
+                      </div>
                     )}
                     <div className="text-[10px] font-medium text-slate-400">
                       {p.team !== "—" && (

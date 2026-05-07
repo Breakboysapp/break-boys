@@ -7,6 +7,10 @@ import {
   isProspectCard,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
+import {
+  buildPlayerInternationalMap,
+  remapInternationalAnime,
+} from "@/lib/international-anime";
 import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
@@ -64,9 +68,20 @@ export default async function ProductPage({
   });
   const isFavorited = favorite != null;
 
-  const algorithm = summarizeAlgorithmFor(product.cards);
-  const teamBreakdown = computeBreakdown(product.cards, "team");
-  const playerBreakdown = computeBreakdown(product.cards, "playerName");
+  // Remap "Anime"-style insert cards that placed superstars on their
+  // NATIONAL team affiliation (Cal Raleigh / USA, Ohtani / Japan, Soto
+  // / Dominican Republic, etc.) back onto their MLB team. Keeps
+  // anime cards counting toward the player's real team in the
+  // scorecard rather than spawning one-off "USA" / "Japan" rows that
+  // nobody buys into. The original country is preserved on
+  // `internationalTeam` so the Chase view can surface "Anime: USA"
+  // as a subtitle next to the player's name.
+  const cards = remapInternationalAnime(product.cards);
+  const playerInternationalMap = buildPlayerInternationalMap(cards);
+
+  const algorithm = summarizeAlgorithmFor(cards);
+  const teamBreakdown = computeBreakdown(cards, "team");
+  const playerBreakdown = computeBreakdown(cards, "playerName");
 
   // Team Market Score — aggregates each team's roster of players by
   // their per-player marketScore (Card-Ladder-style blend on PSA 10
@@ -83,7 +98,7 @@ export default async function ProductPage({
   // because no 2026 Bowman card has traded yet. Rookies still rely on
   // their existing data (Bowman Draft, Topps Chrome) — which is exactly
   // how Card Ladder's player indexes work.
-  const playersInProduct = [...new Set(product.cards.map((c) => c.playerName))];
+  const playersInProduct = [...new Set(cards.map((c) => c.playerName))];
   // Constrain the cross-product feed to products in the SAME sport.
   // Each sport has its own 100 — Ohtani topping MLB doesn't deflate
   // Mahomes on a football product page. Stops cross-sport scaling
@@ -110,7 +125,7 @@ export default async function ProductPage({
   // player contributes one synthetic card per priced card they have
   // anywhere in the DB.
   const teamByPlayer = new Map<string, string>();
-  for (const c of product.cards) {
+  for (const c of cards) {
     if (c.team && c.team !== "—" && !teamByPlayer.has(c.playerName)) {
       teamByPlayer.set(c.playerName, c.team);
     }
@@ -216,8 +231,8 @@ export default async function ProductPage({
   // Player's market = top + median of those values across all priced
   // cards. Trend = % change of that market figure.
   // Reuse the hoisted medianFn helper.
-  const cardsByPlayer = new Map<string, typeof product.cards>();
-  for (const c of product.cards) {
+  const cardsByPlayer = new Map<string, typeof cards>();
+  for (const c of cards) {
     const arr = cardsByPlayer.get(c.playerName) ?? [];
     arr.push(c);
     cardsByPlayer.set(c.playerName, arr);
@@ -297,7 +312,7 @@ export default async function ProductPage({
   // from the underlying cards, but the top-level player rows only
   // carry aggregated metadata.
   const playerRookieMap: Record<string, boolean> = {};
-  for (const c of product.cards) {
+  for (const c of cards) {
     if (c.variation && /·\s*RC$|\brc\b|rookie/i.test(c.variation)) {
       playerRookieMap[c.playerName] = true;
     }
@@ -320,7 +335,7 @@ export default async function ProductPage({
       string,
       { total: number; prospect: number }
     >();
-    for (const c of product.cards) {
+    for (const c of cards) {
       const t = totalsByPlayer.get(c.playerName) ?? { total: 0, prospect: 0 };
       t.total++;
       if (isProspectCard(c.cardNumber, c.variation)) t.prospect++;
@@ -340,7 +355,7 @@ export default async function ProductPage({
     (s, r) => s + r.totalScore,
     0,
   );
-  const cardsWithMarket = product.cards.filter(
+  const cardsWithMarket = cards.filter(
     (c) => c.marketValueCents != null && c.marketValueCents > 0,
   ).length;
   const hasTeams = product.teamPrices.length > 0;
@@ -446,14 +461,14 @@ export default async function ProductPage({
                 algorithm={algorithm}
                 teamBreakdownRows={teamBreakdown.rows}
                 playerBreakdownRows={playerBreakdown.rows}
-                cards={product.cards.map((c) => ({
+                cards={cards.map((c) => ({
                   team: c.team,
                   playerName: c.playerName,
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   marketValueCents: c.marketValueCents,
                 }))}
-                chaseCards={product.cards.map((c) => ({
+                chaseCards={cards.map((c) => ({
                   playerName: c.playerName,
                   team: c.team,
                   // Rookie detection: Beckett xlsx tags rookies with
@@ -473,6 +488,7 @@ export default async function ProductPage({
                   popTotal: c.popTotal,
                 }))}
                 playerGlobalScores={playerGlobalScores}
+                playerInternationalMap={playerInternationalMap}
                 playerProspectMap={playerProspectMap}
                 playerRookieMap={playerRookieMap}
                 playerTrends={playerTrends}
