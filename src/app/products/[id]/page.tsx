@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import {
   PRICING_BLEND_ALPHA,
   computeBreakdown,
+  isProspectCard,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
 import { CURRENT_USER_ID } from "@/lib/user";
@@ -265,6 +266,40 @@ export default async function ProductPage({
     (r as Record<string, unknown>).marketScore =
       teamMarketScores.get(r.name) ?? 0;
   }
+
+  // Per-player "is prospect?" map. Bowman-only — prospect lines are the
+  // headline content of every Bowman product (BP-, BCP-, CPA-, etc.) and
+  // veterans appear on regular numbered cards. A player is flagged as
+  // prospect when every card in this product carrying their name sits on
+  // a prospect line; that filters out veterans who happen to have a
+  // single prospect-y insert appearance and keeps minor-leaguers /
+  // draftees marked even when they have multiple parallel cards.
+  // Other product lines (Topps Chrome, Panini Prizm, etc.) skip this
+  // computation — they don't have a prospect concept the same way, so
+  // the map stays empty and no (P) markers render.
+  const isBowmanProduct = /bowman/i.test(product.name);
+  const playerProspectMap: Record<string, boolean> = {};
+  if (isBowmanProduct) {
+    const totalsByPlayer = new Map<
+      string,
+      { total: number; prospect: number }
+    >();
+    for (const c of product.cards) {
+      const t = totalsByPlayer.get(c.playerName) ?? { total: 0, prospect: 0 };
+      t.total++;
+      if (isProspectCard(c.cardNumber, c.variation)) t.prospect++;
+      totalsByPlayer.set(c.playerName, t);
+    }
+    for (const [name, { total, prospect }] of totalsByPlayer) {
+      // All-or-nothing: every card a player has in this set must be on a
+      // prospect line. Catches both pure-prospect rookies (Holliday: BP-1,
+      // BCP-1, CPA-EH) and avoids false-positives on veterans who happen
+      // to land on a prospect-themed insert.
+      if (total > 0 && prospect === total) {
+        playerProspectMap[name] = true;
+      }
+    }
+  }
   const totalContentScore = teamBreakdown.rows.reduce(
     (s, r) => s + r.totalScore,
     0,
@@ -402,6 +437,7 @@ export default async function ProductPage({
                   popTotal: c.popTotal,
                 }))}
                 playerGlobalScores={playerGlobalScores}
+                playerProspectMap={playerProspectMap}
                 playerTrends={playerTrends}
                 trendDays={trendMaxDays}
               />

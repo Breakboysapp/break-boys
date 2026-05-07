@@ -187,11 +187,16 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
 export default function ChaseScoreboard({
   cards,
   playerGlobalScores,
+  playerProspectMap,
   playerTrends,
   trendDays,
 }: {
   cards: ChaseCard[];
   playerGlobalScores?: Record<string, number>;
+  /** Per-player "is prospect?" flag (Bowman-only). Renders a (P)
+   *  marker after the player name. Empty / undefined for non-Bowman
+   *  products. */
+  playerProspectMap?: Record<string, boolean>;
   playerTrends?: Record<string, number | null>;
   trendDays?: number;
 }) {
@@ -362,6 +367,14 @@ export default function ChaseScoreboard({
                         title="Rookie card in this set"
                       >
                         (R)
+                      </span>
+                    )}
+                    {playerProspectMap?.[p.playerName] && (
+                      <span
+                        className="ml-1 text-[10px] font-bold text-emerald-600"
+                        title="Prospect — minor leaguer or draft pick"
+                      >
+                        (P)
                       </span>
                     )}
                     <div className="text-[10px] font-medium text-slate-400">

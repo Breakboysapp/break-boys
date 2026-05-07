@@ -57,6 +57,7 @@ export default function TeamPriceEditor({
   cards,
   chaseCards,
   playerGlobalScores,
+  playerProspectMap,
   playerTrends,
   trendDays,
 }: {
@@ -81,6 +82,11 @@ export default function TeamPriceEditor({
    *  in-set sales (e.g. day-of-release 2026 Bowman) still show real
    *  player rankings using each player's hobby-wide footprint. */
   playerGlobalScores?: Record<string, number>;
+  /** Per-player "is prospect?" flag (Bowman-only). Players whose every
+   *  card in this product sits on a prospect line (BP-, BCP-, CPA-, etc.)
+   *  get a (P) marker next to their name in the Chase view and team
+   *  breakdowns. Empty map for non-Bowman products. */
+  playerProspectMap?: Record<string, boolean>;
   /** Per-player overall market trend (% change of player's basket of
    *  priced cards from earliest snapshot to current). Card-Ladder-
    *  index style — captures whole-portfolio movement, not single-card
@@ -174,11 +180,13 @@ export default function TeamPriceEditor({
           teamRows={teamBreakdownRows}
           playerRows={playerBreakdownRows}
           cards={cards}
+          playerProspectMap={playerProspectMap}
         />
       ) : (
         <ChaseScoreboard
           cards={chaseCards}
           playerGlobalScores={playerGlobalScores}
+          playerProspectMap={playerProspectMap}
           playerTrends={playerTrends}
           trendDays={trendDays}
         />

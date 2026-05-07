@@ -107,6 +107,45 @@ export function isAutoCard(
   return false;
 }
 
+/**
+ * Card-number prefixes that mark a card as a Bowman "prospect" line —
+ * minor-leaguers / draftees who haven't reached the majors yet. These
+ * are Bowman's headline content (Holliday, Clark, Chourio, etc.).
+ *
+ *   BP    = Base Prospects
+ *   BCP   = Bowman Chrome Prospects
+ *   BTP   = Bowman Top Prospects
+ *   BPA   = Bowman Prospect Autographs
+ *   CPA   = Chrome Prospect Autographs
+ *   BDP   = Bowman Draft Prospects
+ *   BDC   = Bowman Draft Chrome Prospects
+ *   BDPA  = Bowman Draft Prospect Autographs
+ *   PPA   = Prized Prospects Autograph
+ *   PDA   = Prospect Dual Autograph
+ *   DPPA  = Draft Prospect Portrait Autograph
+ *   DPPBA = Draft Lottery Ping Pong Ball Autograph
+ *   PRO   = Prospect promo / preview
+ *   TOP   = Top Prospect inserts (legacy)
+ */
+const PROSPECT_PREFIX =
+  /^(BP|BCP|BTP|BPA|CPA|BDP|BDC|BDPA|PPA|PDA|DPPA|DPPBA|PRO|TOP)-/i;
+
+/**
+ * True when the card sits on a prospect line by either signal: the
+ * cardNumber prefix matches the prospect family, or the variation /
+ * sheet text says "prospect". Used to flag prospect *players* (any
+ * player whose every card in this set is a prospect card) on Bowman
+ * products.
+ */
+export function isProspectCard(
+  cardNumber: string,
+  variation: string | null | undefined,
+): boolean {
+  if (PROSPECT_PREFIX.test(cardNumber)) return true;
+  if (variation && /\bprospect/i.test(variation)) return true;
+  return false;
+}
+
 export type CardLite = {
   cardNumber: string;
   team: string;

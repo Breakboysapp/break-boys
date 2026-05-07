@@ -53,11 +53,16 @@ export default function TeamBreakdownSheet({
   teamRows,
   playerRows,
   cards,
+  playerProspectMap,
 }: {
   buckets: AlgorithmBucket[];
   teamRows: Row[];
   playerRows: Row[];
   cards: CardLite[];
+  /** Per-player "is prospect?" flag (Bowman-only). Renders a (P)
+   *  marker after the player name on player sub-rows and on the
+   *  Player-view top-level rows. Empty for non-Bowman products. */
+  playerProspectMap?: Record<string, boolean>;
 }) {
   const [view, setView] = useState<View>("team");
   const [sortBy, setSortBy] = useState<SortBy>("score");
@@ -329,7 +334,21 @@ export default function TeamBreakdownSheet({
                           ▶
                         </span>
                       )}
-                      {view === "team" ? <SubjectName name={r.name} /> : r.name}
+                      {view === "team" ? (
+                        <SubjectName name={r.name} />
+                      ) : (
+                        <>
+                          {r.name}
+                          {playerProspectMap?.[r.name] && (
+                            <span
+                              className="ml-1 text-[10px] font-bold text-emerald-600"
+                              title="Prospect — minor leaguer or draft pick"
+                            >
+                              (P)
+                            </span>
+                          )}
+                        </>
+                      )}
                     </td>
                     {buckets.map((b) => {
                       const n = r.byBucket[b.label] ?? 0;
@@ -450,6 +469,14 @@ export default function TeamBreakdownSheet({
                               title="Rookie card in this set"
                             >
                               (R)
+                            </span>
+                          )}
+                          {playerProspectMap?.[p.playerName] && (
+                            <span
+                              className="ml-1 text-[10px] font-bold text-emerald-600"
+                              title="Prospect — minor leaguer or draft pick"
+                            >
+                              (P)
                             </span>
                           )}
                         </td>
