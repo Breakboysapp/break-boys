@@ -56,7 +56,12 @@ export default function TeamPriceEditor({
   playerBreakdownRows,
   cards,
   chaseCards,
+  playerGlobalScores,
+  playerInternationalMap,
+  playerProspectMap,
+  playerRookieMap,
   playerTrends,
+  totalRankedTeams,
   trendDays,
 }: {
   productId: string;
@@ -74,6 +79,33 @@ export default function TeamPriceEditor({
    *  the PC importer; cards without PC data have null prices/pop and are
    *  filtered out by the Chase rollup. */
   chaseCards: ChaseCard[];
+  /** Cross-product player market score (0-100) — Card-Ladder-style
+   *  player index, sourced from each player's priced cards across
+   *  EVERY product, not just this one. Lets new products with no
+   *  in-set sales (e.g. day-of-release 2026 Bowman) still show real
+   *  player rankings using each player's hobby-wide footprint. */
+  playerGlobalScores?: Record<string, number>;
+  /** Per-player international team tag (e.g. "USA", "Japan", "Dominican
+   *  Republic") sourced from "Anime"-style insert cards that placed the
+   *  player on their national affiliation rather than their MLB team.
+   *  After the page-level remap puts those cards back on the player's
+   *  real team, this map carries the original country forward so the
+   *  Chase view can display "Anime: USA" beneath the player's name. */
+  playerInternationalMap?: Record<string, string>;
+  /** Per-player "is prospect?" flag (Bowman-only). Players whose every
+   *  card in this product sits on a prospect line (BP-, BCP-, CPA-, etc.)
+   *  get a (P) marker next to their name in the Chase view and team
+   *  breakdowns. Empty map for non-Bowman products. */
+  playerProspectMap?: Record<string, boolean>;
+  /** Per-player "is rookie?" flag — any card of theirs carries the
+   *  Beckett rookie tag. Powers the (R) marker on the player-view
+   *  top-level rows in the team breakdown sheet. */
+  playerRookieMap?: Record<string, boolean>;
+  /** Number of teams in this product that received a market rank
+   *  (i.e. have at least one priced player). Drives the "1 of N"
+   *  suffix on the Market Rank column so the user sees their team's
+   *  position relative to the actual ranked field, not 30 hard-coded. */
+  totalRankedTeams?: number;
   /** Per-player overall market trend (% change of player's basket of
    *  priced cards from earliest snapshot to current). Card-Ladder-
    *  index style — captures whole-portfolio movement, not single-card
@@ -91,11 +123,16 @@ export default function TeamPriceEditor({
   const [scoreboard, setScoreboard] = useState<Scoreboard>("team");
 
   const showMarketBadge = cardsWithMarket > 0;
-  // The Chase view only matters when there's PriceCharting data — show
-  // the toggle only for products that have at least one PSA 10 price.
-  const hasChaseData = chaseCards.some(
-    (c) => c.psa10Cents != null && c.psa10Cents > 0,
-  );
+  // The Chase view shows when there's any market signal — either
+  // in-set PriceCharting prices, OR cross-product player scores
+  // (Card-Ladder-style Overall index). Day-of-release products like
+  // 2026 Bowman have zero in-set prices but plenty of Overall data
+  // for veterans + recurring prospects, so the Chase view is useful
+  // immediately and gets MORE useful as in-set prices fill in.
+  const hasChaseData =
+    chaseCards.some((c) => c.psa10Cents != null && c.psa10Cents > 0) ||
+    (playerGlobalScores != null &&
+      Object.values(playerGlobalScores).some((s) => s > 0));
 
   async function saveBoxPrice() {
     setSavingBox(true);
@@ -167,10 +204,16 @@ export default function TeamPriceEditor({
           teamRows={teamBreakdownRows}
           playerRows={playerBreakdownRows}
           cards={cards}
+          playerProspectMap={playerProspectMap}
+          playerRookieMap={playerRookieMap}
+          totalRankedTeams={totalRankedTeams}
         />
       ) : (
         <ChaseScoreboard
           cards={chaseCards}
+          playerGlobalScores={playerGlobalScores}
+          playerInternationalMap={playerInternationalMap}
+          playerProspectMap={playerProspectMap}
           playerTrends={playerTrends}
           trendDays={trendDays}
         />

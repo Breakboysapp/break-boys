@@ -4,8 +4,13 @@ import { prisma } from "@/lib/prisma";
 import {
   PRICING_BLEND_ALPHA,
   computeBreakdown,
+  isProspectCard,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
+import {
+  buildPlayerInternationalMap,
+  remapInternationalAnime,
+} from "@/lib/international-anime";
 import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
@@ -63,9 +68,20 @@ export default async function ProductPage({
   });
   const isFavorited = favorite != null;
 
-  const algorithm = summarizeAlgorithmFor(product.cards);
-  const teamBreakdown = computeBreakdown(product.cards, "team");
-  const playerBreakdown = computeBreakdown(product.cards, "playerName");
+  // Remap "Anime"-style insert cards that placed superstars on their
+  // NATIONAL team affiliation (Cal Raleigh / USA, Ohtani / Japan, Soto
+  // / Dominican Republic, etc.) back onto their MLB team. Keeps
+  // anime cards counting toward the player's real team in the
+  // scorecard rather than spawning one-off "USA" / "Japan" rows that
+  // nobody buys into. The original country is preserved on
+  // `internationalTeam` so the Chase view can surface "Anime: USA"
+  // as a subtitle next to the player's name.
+  const cards = remapInternationalAnime(product.cards);
+  const playerInternationalMap = buildPlayerInternationalMap(cards);
+
+  const algorithm = summarizeAlgorithmFor(cards);
+  const teamBreakdown = computeBreakdown(cards, "team");
+  const playerBreakdown = computeBreakdown(cards, "playerName");
 
   // Team Market Score — aggregates each team's roster of players by
   // their per-player marketScore (Card-Ladder-style blend on PSA 10
@@ -75,14 +91,101 @@ export default async function ProductPage({
   // normalize across teams (top team = 100). Players with zero priced
   // cards contribute nothing — keeps the score honest about market data
   // coverage in this set.
-  const teamMarketScores = computeTeamMarketScores(
-    product.cards.map((c) => ({
-      team: c.team,
+  // Cross-product player market — the key piece for new products like
+  // 2026 Bowman that have no in-set sales data yet. Pulls each player's
+  // priced cards from EVERY product in the DB, so Judge / Ohtani / etc.
+  // get scored from their full hobby footprint instead of going blank
+  // because no 2026 Bowman card has traded yet. Rookies still rely on
+  // their existing data (Bowman Draft, Topps Chrome) — which is exactly
+  // how Card Ladder's player indexes work.
+  const playersInProduct = [...new Set(cards.map((c) => c.playerName))];
+  // Constrain the cross-product feed to products in the SAME sport.
+  // Each sport has its own 100 — Ohtani topping MLB doesn't deflate
+  // Mahomes on a football product page. Stops cross-sport scaling
+  // weirdness without per-sport configuration; we just trust the
+  // Product.sport tag we already have on every product.
+  const playersGlobalCards = await prisma.card.findMany({
+    where: {
+      playerName: { in: playersInProduct },
+      product: { sport: product.sport },
+      OR: [
+        { psa10Cents: { gt: 0 } },
+        { ungradedCents: { gt: 0 } },
+      ],
+    },
+    select: {
+      playerName: true,
+      psa10Cents: true,
+      ungradedCents: true,
+    },
+  });
+  // Build a synthetic "card list" that mirrors product.cards but with
+  // the player's TEAM from this product (so team aggregation still maps
+  // correctly) and prices coming from the cross-product feed. Each
+  // player contributes one synthetic card per priced card they have
+  // anywhere in the DB.
+  const teamByPlayer = new Map<string, string>();
+  for (const c of cards) {
+    if (c.team && c.team !== "—" && !teamByPlayer.has(c.playerName)) {
+      teamByPlayer.set(c.playerName, c.team);
+    }
+  }
+  const crossProductCards = playersGlobalCards
+    .map((c) => ({
+      team: teamByPlayer.get(c.playerName) ?? "—",
       playerName: c.playerName,
       psa10Cents: c.psa10Cents,
       ungradedCents: c.ungradedCents,
-    })),
-  );
+    }))
+    .filter((c) => c.team !== "—");
+
+  const teamMarketScores = computeTeamMarketScores(crossProductCards);
+
+  // Shared helpers for the price-blend and trend math below. Hoisted
+  // so they're available to the global player market computation,
+  // the trend computation, AND the team aggregation.
+  const RAW_TO_GRADED = 6;
+  const eff = (psa: number | null, raw: number | null) =>
+    Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
+  const medianFn = (a: number[]) => {
+    if (a.length === 0) return 0;
+    const s = [...a].sort((x, y) => x - y);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+
+  // Per-player GLOBAL market score — Card-Ladder-style player index,
+  // 0-100 normalized against the top player among those who appear in
+  // this product. Same blend math the in-set marketScore uses
+  // (log(top) × 0.6 + log(median) × 0.4) but sourced from the player's
+  // priced cards across EVERY product, not just this one. Drives the
+  // Chase view's marketScore so a brand-new product like 2026 Bowman
+  // doesn't show empty rankings on release — Judge / Ohtani / Witt etc.
+  // already have real market data from prior sets.
+  const playerCrossPrices = new Map<string, number[]>();
+  for (const c of playersGlobalCards) {
+    const v = eff(c.psa10Cents, c.ungradedCents);
+    if (v <= 0) continue;
+    const arr = playerCrossPrices.get(c.playerName) ?? [];
+    arr.push(v);
+    playerCrossPrices.set(c.playerName, arr);
+  }
+  const playerCrossBlend = new Map<string, number>();
+  for (const [name, prices] of playerCrossPrices) {
+    const top = Math.max(...prices);
+    const med = medianFn(prices);
+    playerCrossBlend.set(name, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
+  }
+  const maxCrossBlend = Math.max(0, ...playerCrossBlend.values());
+  const playerGlobalScores: Record<string, number> = {};
+  if (maxCrossBlend > 0) {
+    for (const [name, blend] of playerCrossBlend) {
+      playerGlobalScores[name] = Math.max(
+        1,
+        Math.round((blend / maxCrossBlend) * 100),
+      );
+    }
+  }
 
   // Per-card price trend — % change in effective value from the
   // earliest snapshot to current. Powers the "Trend" column on the
@@ -114,9 +217,6 @@ export default async function ProductPage({
       earliestSnapshot.set(s.cardId, s);
     }
   }
-  const RAW_TO_GRADED = 6;
-  const eff = (psa: number | null, raw: number | null) =>
-    Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
   const now = new Date();
   // Per-PLAYER trend — % change in the player's overall market (their
   // basket of priced cards), not just their top card. Mirrors how
@@ -130,14 +230,9 @@ export default async function ProductPage({
   //   - "current" value = today's effective value
   // Player's market = top + median of those values across all priced
   // cards. Trend = % change of that market figure.
-  const median = (a: number[]) => {
-    if (a.length === 0) return 0;
-    const s = [...a].sort((x, y) => x - y);
-    const m = Math.floor(s.length / 2);
-    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-  };
-  const cardsByPlayer = new Map<string, typeof product.cards>();
-  for (const c of product.cards) {
+  // Reuse the hoisted medianFn helper.
+  const cardsByPlayer = new Map<string, typeof cards>();
+  for (const c of cards) {
     const arr = cardsByPlayer.get(c.playerName) ?? [];
     arr.push(c);
     cardsByPlayer.set(c.playerName, arr);
@@ -161,9 +256,9 @@ export default async function ProductPage({
       continue;
     }
     const earlierMarket =
-      Math.max(...earlierValues) + median(earlierValues);
+      Math.max(...earlierValues) + medianFn(earlierValues);
     const currentMarket =
-      Math.max(...currentValues) + median(currentValues);
+      Math.max(...currentValues) + medianFn(currentValues);
     if (earlierMarket <= 0 || earlierMarket === currentMarket) {
       playerTrends[playerName] = null;
       continue;
@@ -180,17 +275,87 @@ export default async function ProductPage({
     },
     0,
   );
-  // Inject marketScore into each team breakdown row. Keys by team name
-  // so re-ordering / filtering on the client doesn't drift.
+  // Convert team market scores → ordinal ranks. The 0-100 normalized
+  // score read as "team #9 has 9/100 worth of market value" which made
+  // 9th place look almost worthless even when the roster had a real
+  // chase rookie. A 1-of-N rank communicates ordering without implying
+  // exponential gaps. Ties get the same rank only when both are zero
+  // (filtered out below); otherwise tiebreak alphabetically so rank
+  // assignment is deterministic across renders.
+  const teamMarketRanks = new Map<string, number>();
+  const sortedTeams = [...teamMarketScores.entries()]
+    .filter(([, score]) => score > 0)
+    .sort(
+      ([a, sa], [b, sb]) =>
+        sb - sa || a.localeCompare(b),
+    );
+  sortedTeams.forEach(([team], i) => {
+    teamMarketRanks.set(team, i + 1);
+  });
+  const totalRankedTeams = teamMarketRanks.size;
+
+  // Inject marketRank (primary) + raw marketScore (tooltip / tiebreak)
+  // into each team breakdown row. Keys by team name so re-ordering /
+  // filtering on the client doesn't drift.
   for (const r of teamBreakdown.rows) {
     (r as Record<string, unknown>).marketScore =
       teamMarketScores.get(r.name) ?? 0;
+    (r as Record<string, unknown>).marketRank =
+      teamMarketRanks.get(r.name) ?? null;
+  }
+
+  // Per-player "is rookie?" map. A player is a rookie in this product
+  // if ANY of their cards carries the Beckett rookie tag — variation
+  // ending in "· RC" or containing the word "rookie". Used to render
+  // the (R) marker on the player-view top-level rows of the team
+  // breakdown; the team-expanded sub-rows derive isRookie themselves
+  // from the underlying cards, but the top-level player rows only
+  // carry aggregated metadata.
+  const playerRookieMap: Record<string, boolean> = {};
+  for (const c of cards) {
+    if (c.variation && /·\s*RC$|\brc\b|rookie/i.test(c.variation)) {
+      playerRookieMap[c.playerName] = true;
+    }
+  }
+
+  // Per-player "is prospect?" map. Bowman-only — prospect lines are the
+  // headline content of every Bowman product (BP-, BCP-, CPA-, etc.) and
+  // veterans appear on regular numbered cards. A player is flagged as
+  // prospect when every card in this product carrying their name sits on
+  // a prospect line; that filters out veterans who happen to have a
+  // single prospect-y insert appearance and keeps minor-leaguers /
+  // draftees marked even when they have multiple parallel cards.
+  // Other product lines (Topps Chrome, Panini Prizm, etc.) skip this
+  // computation — they don't have a prospect concept the same way, so
+  // the map stays empty and no (P) markers render.
+  const isBowmanProduct = /bowman/i.test(product.name);
+  const playerProspectMap: Record<string, boolean> = {};
+  if (isBowmanProduct) {
+    const totalsByPlayer = new Map<
+      string,
+      { total: number; prospect: number }
+    >();
+    for (const c of cards) {
+      const t = totalsByPlayer.get(c.playerName) ?? { total: 0, prospect: 0 };
+      t.total++;
+      if (isProspectCard(c.cardNumber, c.variation)) t.prospect++;
+      totalsByPlayer.set(c.playerName, t);
+    }
+    for (const [name, { total, prospect }] of totalsByPlayer) {
+      // All-or-nothing: every card a player has in this set must be on a
+      // prospect line. Catches both pure-prospect rookies (Holliday: BP-1,
+      // BCP-1, CPA-EH) and avoids false-positives on veterans who happen
+      // to land on a prospect-themed insert.
+      if (total > 0 && prospect === total) {
+        playerProspectMap[name] = true;
+      }
+    }
   }
   const totalContentScore = teamBreakdown.rows.reduce(
     (s, r) => s + r.totalScore,
     0,
   );
-  const cardsWithMarket = product.cards.filter(
+  const cardsWithMarket = cards.filter(
     (c) => c.marketValueCents != null && c.marketValueCents > 0,
   ).length;
   const hasTeams = product.teamPrices.length > 0;
@@ -296,16 +461,22 @@ export default async function ProductPage({
                 algorithm={algorithm}
                 teamBreakdownRows={teamBreakdown.rows}
                 playerBreakdownRows={playerBreakdown.rows}
-                cards={product.cards.map((c) => ({
+                cards={cards.map((c) => ({
                   team: c.team,
                   playerName: c.playerName,
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   marketValueCents: c.marketValueCents,
                 }))}
-                chaseCards={product.cards.map((c) => ({
+                chaseCards={cards.map((c) => ({
                   playerName: c.playerName,
                   team: c.team,
+                  // Rookie detection: Beckett xlsx tags rookies with
+                  // "· RC" suffix in the variation; some sheets use
+                  // the literal word "Rookie". Pattern catches both.
+                  isRookie:
+                    c.variation != null &&
+                    /·\s*RC$|\brc\b|rookie/i.test(c.variation),
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   ungradedCents: c.ungradedCents,
@@ -316,7 +487,12 @@ export default async function ProductPage({
                   popG10: c.popG10,
                   popTotal: c.popTotal,
                 }))}
+                playerGlobalScores={playerGlobalScores}
+                playerInternationalMap={playerInternationalMap}
+                playerProspectMap={playerProspectMap}
+                playerRookieMap={playerRookieMap}
                 playerTrends={playerTrends}
+                totalRankedTeams={totalRankedTeams}
                 trendDays={trendMaxDays}
               />
             </section>
