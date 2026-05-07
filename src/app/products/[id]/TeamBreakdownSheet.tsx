@@ -25,11 +25,19 @@ type Row = {
   totalPotentialCents: number;
   cardsWithMarket: number;
   maxPotentialCents: number;
-  /** 0-100 Market Score (only populated for the team view). Aggregates
-   * per-player marketScore across this team's roster. Top team pinned
-   * at 100. Hidden in the Player view — players already have their own
-   * market score on the Chase scoreboard. */
+  /** 0-100 raw Market Score (only populated for the team view).
+   * Aggregates per-player marketScore across this team's roster. Used
+   * internally for sort tiebreaks and tooltip detail; the displayed
+   * primary signal is `marketRank` because the 0-100 scale read as
+   * "9/100 = team is worthless" even when that team had real chase
+   * value. */
   marketScore?: number;
+  /** 1-of-N team market rank — ordinal position among teams in this
+   * set with priced players. 1 = top market value. null when team has
+   * zero priced players (no aggregate to rank). Hidden in the Player
+   * view — players already have their own market signals on the Chase
+   * scoreboard. */
+  marketRank?: number | null;
 };
 
 // "value" was the eBay-confirmed-market sort. Retired in favor of
@@ -55,11 +63,16 @@ export default function TeamBreakdownSheet({
   cards,
   playerProspectMap,
   playerRookieMap,
+  totalRankedTeams,
 }: {
   buckets: AlgorithmBucket[];
   teamRows: Row[];
   playerRows: Row[];
   cards: CardLite[];
+  /** Total teams with a market rank (denominator for the "rank of N"
+   *  display). When undefined, the Market Rank column falls back to
+   *  showing just the rank number. */
+  totalRankedTeams?: number;
   /** Per-player "is prospect?" flag (Bowman-only). Renders a (P)
    *  marker after the player name on player sub-rows and on the
    *  Player-view top-level rows. Empty for non-Bowman products. */
@@ -76,19 +89,18 @@ export default function TeamBreakdownSheet({
   const [bucketDetail, setBucketDetail] = useState<string | null>(null);
 
   const rawRows = view === "team" ? teamRows : playerRows;
-  // Re-sort rows in place each render. Score / Value / Market selection
-  // drives the ordering; the column data itself is the same. For Value
-  // sort, rows with no confirmed market data fall to the bottom ordered
-  // by score; for Market sort, rows with marketScore=0 fall to the
-  // bottom likewise. Tiebreaks always go by Break Score so rows in a
-  // bucket don't shuffle randomly between renders.
+  // Re-sort rows in place each render. Score / Market selection drives
+  // the ordering; the column data itself is the same. Market sort goes
+  // by marketRank ASC (1 first). Rows with no rank (zero priced
+  // players) fall to the bottom ordered by Break Score — keeps the
+  // ordering deterministic when a chunk of teams have no market data.
   const rows = useMemo(() => {
     const copy = [...rawRows];
     if (sortBy === "market") {
       copy.sort((a, b) => {
-        const am = a.marketScore ?? 0;
-        const bm = b.marketScore ?? 0;
-        if (bm !== am) return bm - am;
+        const ar = a.marketRank ?? Number.POSITIVE_INFINITY;
+        const br = b.marketRank ?? Number.POSITIVE_INFINITY;
+        if (ar !== br) return ar - br;
         return b.totalScore - a.totalScore;
       });
     } else {
@@ -106,11 +118,11 @@ export default function TeamBreakdownSheet({
   // existing conditional-render call sites below short-circuit cleanly
   // without me having to rip them out everywhere.
   const anyValueData = false;
-  // Only show Market Score column when (a) we're on team view AND (b) at
-  // least one row has a non-zero score. Player view hides it because the
-  // Chase scoreboard is the dedicated per-player market view.
+  // Only show Market Rank column when (a) we're on team view AND (b) at
+  // least one row has a rank. Player view hides it because the Chase
+  // scoreboard is the dedicated per-player market view.
   const showMarketScore =
-    view === "team" && rawRows.some((r) => (r.marketScore ?? 0) > 0);
+    view === "team" && rawRows.some((r) => r.marketRank != null);
   const subjectLabel = view === "team" ? "Team" : "Player";
   // Team names get abbreviated on mobile (NYY, LAD, etc.), so the column
   // only needs ~64px on small screens. Player names don't have a clean
@@ -293,9 +305,9 @@ export default function TeamBreakdownSheet({
                   className={`w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
                     sortBy === "market" ? "bg-accent" : "bg-ink"
                   }`}
-                  title="Team Market Score: 0-100 aggregate of each player's market index (Card-Ladder-style PSA 10 blend) summed across the team's roster, normalized so the top team in the set = 100. Read this alongside Break Score — the two answer different questions: 'how many points worth of card-types are on this team' vs 'how much real market value lives on this team.'"
+                  title="Team Market Rank: ordinal position of this team's roster value among all teams in this set. 1 = highest market value. We use a rank instead of a 0-100 score because the score's exponential gap made 9th place look worthless even when that team had a real chase rookie. Aggregate logic underneath: top-3 stars at full weight + depth, summed across the team's priced players."
                 >
-                  Market
+                  Market Rank
                 </th>
               )}
               {anyValueData && (
@@ -404,19 +416,25 @@ export default function TeamBreakdownSheet({
                           sortBy === "market" ? "bg-accent-tint" : "bg-white"
                         }`}
                         title={
-                          (r.marketScore ?? 0) > 0
-                            ? `Market Score ${r.marketScore}/100 — aggregate of player marketScores on this team, normalized so the top team in this set is 100.`
+                          r.marketRank != null
+                            ? `Ranked #${r.marketRank}${
+                                totalRankedTeams
+                                  ? ` of ${totalRankedTeams} teams`
+                                  : ""
+                              } by aggregate roster market value. Underlying score: ${r.marketScore ?? 0}/100 (top-3 stars + depth, normalized).`
                             : "No market data on this team's roster yet."
                         }
                       >
-                        {(r.marketScore ?? 0) > 0 ? (
+                        {r.marketRank != null ? (
                           <>
                             <span className="text-base font-extrabold text-ink">
-                              {r.marketScore}
+                              {r.marketRank}
                             </span>
-                            <span className="text-[10px] font-medium text-slate-400">
-                              /100
-                            </span>
+                            {totalRankedTeams ? (
+                              <span className="text-[10px] font-medium text-slate-400">
+                                /{totalRankedTeams}
+                              </span>
+                            ) : null}
                           </>
                         ) : (
                           <span className="text-slate-300">—</span>

@@ -260,11 +260,33 @@ export default async function ProductPage({
     },
     0,
   );
-  // Inject marketScore into each team breakdown row. Keys by team name
-  // so re-ordering / filtering on the client doesn't drift.
+  // Convert team market scores → ordinal ranks. The 0-100 normalized
+  // score read as "team #9 has 9/100 worth of market value" which made
+  // 9th place look almost worthless even when the roster had a real
+  // chase rookie. A 1-of-N rank communicates ordering without implying
+  // exponential gaps. Ties get the same rank only when both are zero
+  // (filtered out below); otherwise tiebreak alphabetically so rank
+  // assignment is deterministic across renders.
+  const teamMarketRanks = new Map<string, number>();
+  const sortedTeams = [...teamMarketScores.entries()]
+    .filter(([, score]) => score > 0)
+    .sort(
+      ([a, sa], [b, sb]) =>
+        sb - sa || a.localeCompare(b),
+    );
+  sortedTeams.forEach(([team], i) => {
+    teamMarketRanks.set(team, i + 1);
+  });
+  const totalRankedTeams = teamMarketRanks.size;
+
+  // Inject marketRank (primary) + raw marketScore (tooltip / tiebreak)
+  // into each team breakdown row. Keys by team name so re-ordering /
+  // filtering on the client doesn't drift.
   for (const r of teamBreakdown.rows) {
     (r as Record<string, unknown>).marketScore =
       teamMarketScores.get(r.name) ?? 0;
+    (r as Record<string, unknown>).marketRank =
+      teamMarketRanks.get(r.name) ?? null;
   }
 
   // Per-player "is rookie?" map. A player is a rookie in this product
@@ -454,6 +476,7 @@ export default async function ProductPage({
                 playerProspectMap={playerProspectMap}
                 playerRookieMap={playerRookieMap}
                 playerTrends={playerTrends}
+                totalRankedTeams={totalRankedTeams}
                 trendDays={trendMaxDays}
               />
             </section>
