@@ -83,9 +83,15 @@ export default async function ProductPage({
   // their existing data (Bowman Draft, Topps Chrome) — which is exactly
   // how Card Ladder's player indexes work.
   const playersInProduct = [...new Set(product.cards.map((c) => c.playerName))];
+  // Constrain the cross-product feed to products in the SAME sport.
+  // Each sport has its own 100 — Ohtani topping MLB doesn't deflate
+  // Mahomes on a football product page. Stops cross-sport scaling
+  // weirdness without per-sport configuration; we just trust the
+  // Product.sport tag we already have on every product.
   const playersGlobalCards = await prisma.card.findMany({
     where: {
       playerName: { in: playersInProduct },
+      product: { sport: product.sport },
       OR: [
         { psa10Cents: { gt: 0 } },
         { ungradedCents: { gt: 0 } },
