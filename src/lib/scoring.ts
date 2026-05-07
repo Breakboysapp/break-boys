@@ -232,18 +232,21 @@ export function classifyCard(
   // Label resolution: variation (most specific) → prefix label → "Insert".
   let label = baseVariation ?? labelFromPrefix ?? "Insert";
 
-  // Make autographs unmistakable in the scorecard. If the cardNumber
-  // is from an auto-prefix family OR the variation/sheet text already
-  // says auto, prefix the bucket label with "Auto -". Skip if the
-  // resolved label already contains "auto" so we don't end up with
-  // "Auto - Chrome Prospect Autographs" (redundant) — only "Auto -
-  // Refractor", "Auto - Gold /50", etc. where the parallel name alone
-  // hides the auto signal.
-  if (
-    isAutoCard(cardNumber, variation) &&
-    !/\bauto/i.test(label)
-  ) {
-    label = `Auto - ${label}`;
+  // Make autographs unmistakable in the scorecard. Front-load "Auto -"
+  // so column-header truncation can't hide the auto signal. Some
+  // variations already contain "Autographs" ("Chrome Prospect
+  // Autographs", "Ultimate Autographs") and the bucket name then
+  // truncates to "Chrome Prospect" / "Ultimate Autogra…", losing the
+  // auto context — strip the auto tokens off the tail and rely on the
+  // "Auto -" prefix to carry that meaning.
+  if (isAutoCard(cardNumber, variation)) {
+    const stripped = label
+      .replace(/\bAutographs?\b/gi, "")
+      .replace(/\bAuto\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .replace(/^[\s\-–—]+|[\s\-–—]+$/g, "")
+      .trim();
+    label = `Auto - ${stripped || "Variation"}`;
   }
 
   return { label, weight };

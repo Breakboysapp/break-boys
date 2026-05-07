@@ -58,6 +58,7 @@ export default function TeamPriceEditor({
   chaseCards,
   playerGlobalScores,
   playerProspectMap,
+  playerRookieMap,
   playerTrends,
   trendDays,
 }: {
@@ -87,6 +88,10 @@ export default function TeamPriceEditor({
    *  get a (P) marker next to their name in the Chase view and team
    *  breakdowns. Empty map for non-Bowman products. */
   playerProspectMap?: Record<string, boolean>;
+  /** Per-player "is rookie?" flag — any card of theirs carries the
+   *  Beckett rookie tag. Powers the (R) marker on the player-view
+   *  top-level rows in the team breakdown sheet. */
+  playerRookieMap?: Record<string, boolean>;
   /** Per-player overall market trend (% change of player's basket of
    *  priced cards from earliest snapshot to current). Card-Ladder-
    *  index style — captures whole-portfolio movement, not single-card
@@ -181,6 +186,7 @@ export default function TeamPriceEditor({
           playerRows={playerBreakdownRows}
           cards={cards}
           playerProspectMap={playerProspectMap}
+          playerRookieMap={playerRookieMap}
         />
       ) : (
         <ChaseScoreboard
