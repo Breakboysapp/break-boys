@@ -385,6 +385,12 @@ export default async function ProductPage({
                 chaseCards={product.cards.map((c) => ({
                   playerName: c.playerName,
                   team: c.team,
+                  // Rookie detection: Beckett xlsx tags rookies with
+                  // "· RC" suffix in the variation; some sheets use
+                  // the literal word "Rookie". Pattern catches both.
+                  isRookie:
+                    c.variation != null &&
+                    /·\s*RC$|\brc\b|rookie/i.test(c.variation),
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   ungradedCents: c.ungradedCents,

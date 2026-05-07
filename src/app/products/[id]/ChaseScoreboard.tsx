@@ -14,6 +14,11 @@ export type ChaseCard = {
    * for cards the importer couldn't team-infer. Surfaced as part of the
    * Player column subtitle so users see who the player rolls up under. */
   team: string;
+  /** True when this card carries the Beckett rookie tag — variation
+   * ending in "· RC" (the convention from the xlsx upload) or
+   * containing the word "rookie". Aggregated up to player level by
+   * the rollup so any-rookie-card-in-set tags the player with (R). */
+  isRookie: boolean;
   cardNumber: string;
   variation: string | null;
   ungradedCents: number | null;
@@ -31,6 +36,9 @@ type PlayerRollup = {
    * if every one of their cards has the placeholder; in practice that's
    * rare since manual checklist uploads carry real teams. */
   team: string;
+  /** True if ANY of the player's cards in this set is rookie-tagged.
+   * Drives the "(R)" suffix shown after the player name. */
+  isRookie: boolean;
   cardCount: number;
   /** % change of the player's overall market basket over the snapshot
    * window — not just the top card. Card-Ladder-index style:
@@ -108,6 +116,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       row = {
         playerName: c.playerName,
         team: "—",
+        isRookie: false,
         cardCount: 0,
         topPsa10Cents: 0,
         topVariation: null,
@@ -129,6 +138,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
     // for all of a player's cards in a single set unless they were
     // traded mid-season.
     if (row.team === "—" && c.team && c.team !== "—") row.team = c.team;
+    if (c.isRookie) row.isRookie = true;
     if (psa10 > 0) row._psa10s.push(psa10);
     if (psa10 > row.topPsa10Cents) {
       row.topPsa10Cents = psa10;
@@ -346,6 +356,14 @@ export default function ChaseScoreboard({
                   </td>
                   <td className="px-3 py-2 font-semibold tracking-tight-2">
                     {p.playerName}
+                    {p.isRookie && (
+                      <span
+                        className="ml-1 text-[10px] font-bold text-accent"
+                        title="Rookie card in this set"
+                      >
+                        (R)
+                      </span>
+                    )}
                     <div className="text-[10px] font-medium text-slate-400">
                       {p.team !== "—" && (
                         <>

@@ -444,6 +444,14 @@ export default function TeamBreakdownSheet({
                         >
                           <span className="mr-1.5 text-slate-300">└</span>
                           {p.playerName}
+                          {p.isRookie && (
+                            <span
+                              className="ml-1 text-[10px] font-bold text-accent"
+                              title="Rookie card in this set"
+                            >
+                              (R)
+                            </span>
+                          )}
                         </td>
                         {buckets.map((b) => {
                           const nums = p.byBucket.get(b.label) ?? [];
@@ -584,26 +592,47 @@ export default function TeamBreakdownSheet({
  * caller can render player rows as real <tr> children of the parent
  * table and reuse the exact same column widths.
  */
+// True when the variation carries the Beckett rookie tag — variation
+// ending in "· RC" or containing the word "rookie". Mirrors the
+// detection used by ChaseScoreboard so the (R) marker reads
+// consistently across both views.
+const ROOKIE_RE = /·\s*RC$|\brc\b|rookie/i;
+function isRookieVariation(v: string | null | undefined): boolean {
+  return v != null && ROOKIE_RE.test(v);
+}
+
 function computePlayerRows(
   cards: CardLite[],
   buckets: AlgorithmBucket[],
 ): Array<{
   playerName: string;
+  isRookie: boolean;
   byBucket: Map<string, string[]>;
   totalScore: number;
 }> {
   const weightByLabel = new Map(buckets.map((b) => [b.label, b.weight]));
   const m = new Map<
     string,
-    { playerName: string; byBucket: Map<string, string[]>; totalScore: number }
+    {
+      playerName: string;
+      isRookie: boolean;
+      byBucket: Map<string, string[]>;
+      totalScore: number;
+    }
   >();
   for (const c of cards) {
     const cls = classifyCard(c.cardNumber, c.variation);
     let row = m.get(c.playerName);
     if (!row) {
-      row = { playerName: c.playerName, byBucket: new Map(), totalScore: 0 };
+      row = {
+        playerName: c.playerName,
+        isRookie: false,
+        byBucket: new Map(),
+        totalScore: 0,
+      };
       m.set(c.playerName, row);
     }
+    if (isRookieVariation(c.variation)) row.isRookie = true;
     let nums = row.byBucket.get(cls.label);
     if (!nums) {
       nums = [];
