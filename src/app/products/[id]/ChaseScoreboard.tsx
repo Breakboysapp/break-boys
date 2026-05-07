@@ -140,7 +140,16 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
     if (row.team === "—" && c.team && c.team !== "—") row.team = c.team;
     if (c.isRookie) row.isRookie = true;
     if (psa10 > 0) row._psa10s.push(psa10);
-    if (psa10 > row.topPsa10Cents) {
+    // Update top card when this card beats the current top, OR when
+    // it's the first card we've seen for this player and we've never
+    // recorded a card yet (topCardNumber === ""). The fallback path
+    // matters on day-of-release products where every card is psa10=0:
+    // without it, Top Card stays blank and the Chase view looks broken.
+    // With it, Holliday's first card (e.g. BP-1) becomes the
+    // representative until in-set sales accumulate and a real chase
+    // card overrides it.
+    const isFirstCardEver = row.topCardNumber === "";
+    if (psa10 > row.topPsa10Cents || isFirstCardEver) {
       row.topPsa10Cents = psa10;
       row.topVariation = c.variation;
       row.topCardNumber = c.cardNumber;
@@ -258,12 +267,12 @@ export default function ChaseScoreboard({
           Chase
         </div>
         <div className="mt-1 text-base font-extrabold tracking-tight-3">
-          No PSA 10 pricing yet
+          No market signal yet
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          The Chase scoreboard ranks players by their highest-grade card values
-          (sourced from PriceCharting). This product hasn&apos;t been imported
-          yet, or it pre-dates the integration.
+          The Chase scoreboard ranks players by their card market — both
+          in-set PSA 10 prices and their cross-product Overall index. This
+          product&apos;s players haven&apos;t shown up in any priced set yet.
         </p>
       </div>
     );

@@ -115,11 +115,16 @@ export default function TeamPriceEditor({
   const [scoreboard, setScoreboard] = useState<Scoreboard>("team");
 
   const showMarketBadge = cardsWithMarket > 0;
-  // The Chase view only matters when there's PriceCharting data — show
-  // the toggle only for products that have at least one PSA 10 price.
-  const hasChaseData = chaseCards.some(
-    (c) => c.psa10Cents != null && c.psa10Cents > 0,
-  );
+  // The Chase view shows when there's any market signal — either
+  // in-set PriceCharting prices, OR cross-product player scores
+  // (Card-Ladder-style Overall index). Day-of-release products like
+  // 2026 Bowman have zero in-set prices but plenty of Overall data
+  // for veterans + recurring prospects, so the Chase view is useful
+  // immediately and gets MORE useful as in-set prices fill in.
+  const hasChaseData =
+    chaseCards.some((c) => c.psa10Cents != null && c.psa10Cents > 0) ||
+    (playerGlobalScores != null &&
+      Object.values(playerGlobalScores).some((s) => s > 0));
 
   async function saveBoxPrice() {
     setSavingBox(true);
