@@ -54,6 +54,7 @@ export default function TeamBreakdownSheet({
   playerRows,
   cards,
   playerProspectMap,
+  playerRookieMap,
 }: {
   buckets: AlgorithmBucket[];
   teamRows: Row[];
@@ -63,6 +64,10 @@ export default function TeamBreakdownSheet({
    *  marker after the player name on player sub-rows and on the
    *  Player-view top-level rows. Empty for non-Bowman products. */
   playerProspectMap?: Record<string, boolean>;
+  /** Per-player "is rookie?" flag. Renders a (R) marker after the
+   *  player name on the Player-view top-level rows. Sub-rows derive
+   *  isRookie from the underlying cards directly. */
+  playerRookieMap?: Record<string, boolean>;
 }) {
   const [view, setView] = useState<View>("team");
   const [sortBy, setSortBy] = useState<SortBy>("score");
@@ -339,6 +344,14 @@ export default function TeamBreakdownSheet({
                       ) : (
                         <>
                           {r.name}
+                          {playerRookieMap?.[r.name] && (
+                            <span
+                              className="ml-1 text-[10px] font-bold text-accent"
+                              title="Rookie card in this set"
+                            >
+                              (R)
+                            </span>
+                          )}
                           {playerProspectMap?.[r.name] && (
                             <span
                               className="ml-1 text-[10px] font-bold text-emerald-600"

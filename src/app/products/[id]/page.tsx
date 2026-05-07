@@ -267,6 +267,20 @@ export default async function ProductPage({
       teamMarketScores.get(r.name) ?? 0;
   }
 
+  // Per-player "is rookie?" map. A player is a rookie in this product
+  // if ANY of their cards carries the Beckett rookie tag — variation
+  // ending in "· RC" or containing the word "rookie". Used to render
+  // the (R) marker on the player-view top-level rows of the team
+  // breakdown; the team-expanded sub-rows derive isRookie themselves
+  // from the underlying cards, but the top-level player rows only
+  // carry aggregated metadata.
+  const playerRookieMap: Record<string, boolean> = {};
+  for (const c of product.cards) {
+    if (c.variation && /·\s*RC$|\brc\b|rookie/i.test(c.variation)) {
+      playerRookieMap[c.playerName] = true;
+    }
+  }
+
   // Per-player "is prospect?" map. Bowman-only — prospect lines are the
   // headline content of every Bowman product (BP-, BCP-, CPA-, etc.) and
   // veterans appear on regular numbered cards. A player is flagged as
@@ -438,6 +452,7 @@ export default async function ProductPage({
                 }))}
                 playerGlobalScores={playerGlobalScores}
                 playerProspectMap={playerProspectMap}
+                playerRookieMap={playerRookieMap}
                 playerTrends={playerTrends}
                 trendDays={trendMaxDays}
               />
