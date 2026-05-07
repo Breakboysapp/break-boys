@@ -60,6 +60,7 @@ export default function TeamPriceEditor({
   playerProspectMap,
   playerRookieMap,
   playerTrends,
+  totalRankedTeams,
   trendDays,
 }: {
   productId: string;
@@ -92,6 +93,11 @@ export default function TeamPriceEditor({
    *  Beckett rookie tag. Powers the (R) marker on the player-view
    *  top-level rows in the team breakdown sheet. */
   playerRookieMap?: Record<string, boolean>;
+  /** Number of teams in this product that received a market rank
+   *  (i.e. have at least one priced player). Drives the "1 of N"
+   *  suffix on the Market Rank column so the user sees their team's
+   *  position relative to the actual ranked field, not 30 hard-coded. */
+  totalRankedTeams?: number;
   /** Per-player overall market trend (% change of player's basket of
    *  priced cards from earliest snapshot to current). Card-Ladder-
    *  index style — captures whole-portfolio movement, not single-card
@@ -187,6 +193,7 @@ export default function TeamPriceEditor({
           cards={cards}
           playerProspectMap={playerProspectMap}
           playerRookieMap={playerRookieMap}
+          totalRankedTeams={totalRankedTeams}
         />
       ) : (
         <ChaseScoreboard
