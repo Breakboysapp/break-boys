@@ -53,10 +53,19 @@ type PlayerRollup = {
    *  one high-priced /1 and nothing else doesn't dominate over a
    *  player with depth (multiple solid parallels). */
   medianPsa10Cents: number;
-  /** 0-100 market score. Log-normalized against the set's max. Combines
-   *  topPsa10 (60% — chase signal) and medianPsa10 (40% — depth) so
-   *  both headline value AND breadth contribute. */
+  /** 0-100 player market score — Card-Ladder-style index. Sourced
+   *  from the player's priced cards across ALL products in the DB
+   *  (cross-product / hobby-wide footprint). Stable across product
+   *  pages: a player's "Overall" reads the same on every product
+   *  they appear in. Drives the rank order. */
   marketScore: number;
+  /** 0-100 set-specific market score — same blend math, but sourced
+   *  ONLY from this product's priced cards. Drops to 0 on day-of-
+   *  release when nothing's traded yet. Useful contrast: a player
+   *  whose Overall is high but whose In-Set is low signals "the
+   *  market knows them, but their cards in THIS set aren't trading
+   *  yet" — and vice versa for set-specific heat. */
+  inSetMarketScore: number;
   /** Combined PSA + CGC pop counts — sum across player's cards. Pop
    *  volume is its own market signal: collectors only pay grading fees
    *  on cards they think are worth grading. Gem rate is shown in its
@@ -107,6 +116,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
         marketTrendPct: null,
         medianPsa10Cents: 0,
         marketScore: 0,
+        inSetMarketScore: 0,
         popG10Sum: 0,
         popTotalSum: 0,
         gemRate: null,
@@ -146,10 +156,15 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
   if (maxBlend > 0) {
     for (const p of players) {
       const playerBlend = blend(p.topPsa10Cents, p.medianPsa10Cents);
-      p.marketScore =
+      const score =
         playerBlend > 0
           ? Math.max(1, Math.round((playerBlend / maxBlend) * 100))
           : 0;
+      // Both fields seeded with the in-set score initially. The page
+      // overrides marketScore with the cross-product (Overall) score
+      // afterward; inSetMarketScore stays as the set-specific snapshot.
+      p.marketScore = score;
+      p.inSetMarketScore = score;
     }
   }
   for (const row of players) {
@@ -284,14 +299,14 @@ export default function ChaseScoreboard({
                   {trendLabel}
                 </th>
               )}
-              <th className="w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
+              <th className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
                 <button
                   type="button"
                   onClick={() => setExplainerOpen(true)}
                   className="inline-flex items-center gap-1 hover:text-accent"
                   title="What is Market Score?"
                 >
-                  <span>Market Score</span>
+                  <span>Overall</span>
                   <span
                     aria-hidden
                     className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white/40 text-[8px] font-bold text-white/70"
@@ -299,6 +314,12 @@ export default function ChaseScoreboard({
                     i
                   </span>
                 </button>
+              </th>
+              <th
+                className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                title="Set-specific market score — same blend math but sourced ONLY from cards priced in this product. Drops to '—' on day-of-release before any in-set sales accumulate. Useful contrast against Overall: a player whose Overall is high but In-Set is low signals 'the market knows them, but their cards in THIS set haven't traded yet'; high In-Set with lower Overall flags set-specific heat."
+              >
+                In Set
               </th>
               <th
                 className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
@@ -389,12 +410,33 @@ export default function ChaseScoreboard({
                   )}
                   <td
                     className="px-3 py-2 text-right tabular-nums"
-                    title={`${p.marketScore}/100. Log-normalized against the top player's PSA 10 in this set.`}
+                    title={`Overall: ${p.marketScore}/100. Cross-product player index — sourced from this player's priced cards across every product in the DB.`}
                   >
                     {p.marketScore > 0 ? (
                       <>
                         <span className="text-base font-extrabold text-ink">
                           {p.marketScore}
+                        </span>
+                        <span className="text-[10px] font-medium text-slate-400">
+                          /100
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
+                  <td
+                    className="px-3 py-2 text-right tabular-nums"
+                    title={
+                      p.inSetMarketScore > 0
+                        ? `In-Set: ${p.inSetMarketScore}/100. Same blend math but only this product's priced cards.`
+                        : "No in-set price data yet for this player."
+                    }
+                  >
+                    {p.inSetMarketScore > 0 ? (
+                      <>
+                        <span className="text-sm font-bold text-slate-700">
+                          {p.inSetMarketScore}
                         </span>
                         <span className="text-[10px] font-medium text-slate-400">
                           /100
