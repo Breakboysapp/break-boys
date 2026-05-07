@@ -57,6 +57,7 @@ export default function TeamPriceEditor({
   cards,
   chaseCards,
   playerGlobalScores,
+  playerInternationalMap,
   playerProspectMap,
   playerRookieMap,
   playerTrends,
@@ -84,6 +85,13 @@ export default function TeamPriceEditor({
    *  in-set sales (e.g. day-of-release 2026 Bowman) still show real
    *  player rankings using each player's hobby-wide footprint. */
   playerGlobalScores?: Record<string, number>;
+  /** Per-player international team tag (e.g. "USA", "Japan", "Dominican
+   *  Republic") sourced from "Anime"-style insert cards that placed the
+   *  player on their national affiliation rather than their MLB team.
+   *  After the page-level remap puts those cards back on the player's
+   *  real team, this map carries the original country forward so the
+   *  Chase view can display "Anime: USA" beneath the player's name. */
+  playerInternationalMap?: Record<string, string>;
   /** Per-player "is prospect?" flag (Bowman-only). Players whose every
    *  card in this product sits on a prospect line (BP-, BCP-, CPA-, etc.)
    *  get a (P) marker next to their name in the Chase view and team
@@ -204,6 +212,7 @@ export default function TeamPriceEditor({
         <ChaseScoreboard
           cards={chaseCards}
           playerGlobalScores={playerGlobalScores}
+          playerInternationalMap={playerInternationalMap}
           playerProspectMap={playerProspectMap}
           playerTrends={playerTrends}
           trendDays={trendDays}
