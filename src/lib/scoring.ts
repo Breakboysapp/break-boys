@@ -66,6 +66,47 @@ const PREFIX_WEIGHTS: Array<{ match: RegExp; label: string; weight: number }> = 
 
 const BASE_WEIGHT = 1;
 
+/**
+ * Card-number prefixes that mean "this card is an autograph," regardless
+ * of what the variation field says. Crucial for Bowman / Topps Chrome
+ * parallel autos where the variation column is just the parallel name
+ * ("Refractor", "Gold /50", "Black /1") and the auto-ness lives in the
+ * cardNumber prefix.
+ *
+ *   CPA   = Chrome Prospect Autograph (Bowman family)
+ *   BMA   = Bowman Mega Autograph
+ *   AA    = Achromatic Autograph
+ *   DPPA  = Draft Prospect Portrait Autograph
+ *   DPPBA = Draft Lottery Ping Pong Ball Autograph
+ *   BIA   = Bowman In Action Autograph
+ *   BDNA  = Bowman Draft Night Autograph
+ *   PPA   = Prized Prospects Autograph
+ *   PDA   = Prospect Dual Autograph
+ *   RA    = Topps Chrome Rookie Autograph
+ *   TBA   = Topps Basketball Autograph
+ *   CBA   = Chrome Black Autograph
+ *   IVA   = Ivory Autograph
+ *   PDPA  = Pitch Black Dual Pen Autograph
+ *   SFA   = Super Futures Autograph
+ *   PIA   = Paint It Autograph
+ */
+const AUTO_PREFIX = /^(CPA|BMA|AA|DPPA|DPPBA|BIA|BDNA|PPA|PDA|RA|TBA|CBA|IVA|PDPA|SFA|PIA)-/i;
+
+/**
+ * True when the card is an autograph by either signal we have access
+ * to: the cardNumber prefix or the variation/sheet text. Used to label
+ * scorecard buckets so users can spot autos at a glance — they're the
+ * biggest chases.
+ */
+export function isAutoCard(
+  cardNumber: string,
+  variation: string | null | undefined,
+): boolean {
+  if (AUTO_PREFIX.test(cardNumber)) return true;
+  if (variation && /autograph|\bauto\b/i.test(variation)) return true;
+  return false;
+}
+
 export type CardLite = {
   cardNumber: string;
   team: string;
@@ -150,7 +191,22 @@ export function classifyCard(
   }
 
   // Label resolution: variation (most specific) → prefix label → "Insert".
-  const label = baseVariation ?? labelFromPrefix ?? "Insert";
+  let label = baseVariation ?? labelFromPrefix ?? "Insert";
+
+  // Make autographs unmistakable in the scorecard. If the cardNumber
+  // is from an auto-prefix family OR the variation/sheet text already
+  // says auto, prefix the bucket label with "Auto -". Skip if the
+  // resolved label already contains "auto" so we don't end up with
+  // "Auto - Chrome Prospect Autographs" (redundant) — only "Auto -
+  // Refractor", "Auto - Gold /50", etc. where the parallel name alone
+  // hides the auto signal.
+  if (
+    isAutoCard(cardNumber, variation) &&
+    !/\bauto/i.test(label)
+  ) {
+    label = `Auto - ${label}`;
+  }
+
   return { label, weight };
 }
 
