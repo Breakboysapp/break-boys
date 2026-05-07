@@ -426,16 +426,9 @@ export default function TeamBreakdownSheet({
                         }
                       >
                         {r.marketRank != null ? (
-                          <>
-                            <span className="text-base font-extrabold text-ink">
-                              {r.marketRank}
-                            </span>
-                            {totalRankedTeams ? (
-                              <span className="text-[10px] font-medium text-slate-400">
-                                /{totalRankedTeams}
-                              </span>
-                            ) : null}
-                          </>
+                          <span className="text-base font-extrabold text-ink">
+                            {r.marketRank}
+                          </span>
                         ) : (
                           <span className="text-slate-300">—</span>
                         )}
