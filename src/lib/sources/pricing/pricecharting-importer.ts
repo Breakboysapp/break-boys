@@ -57,8 +57,43 @@ export const TRACKED_SLUGS: SlugMeta[] = [
     sport: "MLB",
     manufacturer: "Topps",
   },
+  // Topps Chrome Rookie Autograph (RA-XX) — separate slug, same
+  // adoption pattern as Bowman Draft autos: same name+sport as base
+  // Chrome so this slug's cards merge into the same Product. Without
+  // this, Sasaki / Skenes / Wood / etc. rookie autos (real chase
+  // cards in Chrome) never get prices and the marketScore underweights
+  // the rookie tier.
+  {
+    slug: "baseball-cards-2025-topps-chrome-rookie-autograph",
+    name: "2025 Topps Chrome Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
+  },
   {
     slug: "baseball-cards-2025-bowman-draft",
+    name: "2025 Bowman Draft Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
+    // Retrofractor in Bowman Draft is the legends/HoF tribute parallel
+    // (Lou Brock #BD-202, Sadaharu Oh #BD-201, etc.). Excluding them
+    // from the prospect-focused product so legends don't crowd out the
+    // 2025 draft class in the Chase view.
+    excludeVariation: /retrofractor/i,
+  },
+  // Bowman Draft Chrome Prospect Autograph — separate SCP slug for
+  // the CPA-XX auto cards. Same name+sport as the base set so the
+  // adoption logic merges this slug's cards into the same Product
+  // row, surfacing prospects' autographs (the real chase) on the
+  // Bowman Draft Chase view.
+  {
+    slug: "baseball-cards-2025-bowman-draft-chrome-prospect-autograph",
+    name: "2025 Bowman Draft Baseball",
+    sport: "MLB",
+    manufacturer: "Topps",
+  },
+  // Bowman Draft Mega Box Autograph (BMA-XX) — same merge pattern.
+  {
+    slug: "baseball-cards-2025-bowman-draft-chrome-prospect-mega-autograph",
     name: "2025 Bowman Draft Baseball",
     sport: "MLB",
     manufacturer: "Topps",
@@ -347,18 +382,20 @@ export async function importSet(
       ...popFields,
     };
     // Match priority: PC id (exact, from prior runs) → exact card key
-    // (cardNumber + variation) → looser player+cardNumber. The looser
-    // match catches cases where the manual checklist's variation
-    // string differs from PC's parsed variation ("Refractors" vs
-    // "Refractor", etc.).
+    // (cardNumber + variation, normalized).
+    //
+    // We DELIBERATELY don't fall back to (playerName + cardNumber)
+    // matching anymore. That fallback collapses every parallel of a
+    // player's same-numbered card onto one manual slot — Ohtani's PC
+    // base, Refractor, X-Fractor, Pink, Red Refractor, Superfractor
+    // all hash to the same `ohtani|1` key, only the last one's data
+    // sticks, and the rest of his parallels never get prices. Without
+    // the fallback, anything that doesn't match by exact key falls
+    // through to team-inferred enrichment below, which creates new
+    // rows so each parallel gets its own price.
     const existingId =
       existingByPCId.get(c.id) ??
-      existingByCardKey.get(
-        cardKey(parsed.cardNumber, parsed.variation),
-      ) ??
-      existingByPlayerCard.get(
-        playerCardKey(parsed.playerName, parsed.cardNumber),
-      );
+      existingByCardKey.get(cardKey(parsed.cardNumber, parsed.variation));
 
     if (existingId) {
       // Update path. Don't write team / playerName / cardNumber /

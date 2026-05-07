@@ -24,26 +24,45 @@ const env = process.env.VERCEL_ENV;
 const url = process.env.DATABASE_URL ?? "";
 const PROD_HOST = "ep-winter-shadow-aklqd4xs-pooler";
 
-const isPreviewLike = env === "preview" || env === "development";
+const isPreview = env === "preview" || env === "development";
+const isProduction = env === "production";
 const looksLikeProd = url.includes(PROD_HOST);
 
-if (!isPreviewLike) {
+if (!isPreview && !isProduction) {
   console.log(
-    `[vercel-build-prelude] VERCEL_ENV=${env || "(unset)"} — skipping schema sync (only runs on preview/development).`,
+    `[vercel-build-prelude] VERCEL_ENV=${env || "(unset)"} — skipping schema sync.`,
   );
   process.exit(0);
 }
 
-if (looksLikeProd) {
+// Preview: refuse to apply against the prod host even if VERCEL_ENV is
+// preview — that combination would mean an env-var misconfiguration,
+// not "use staging." Better to fail loud than to write to prod
+// silently from a preview build.
+if (isPreview && looksLikeProd) {
   console.log(
-    "[vercel-build-prelude] DATABASE_URL points at the prod host — refusing to run db push as a safety guard.",
+    "[vercel-build-prelude] preview build but DATABASE_URL points at prod host — aborting db push.",
+  );
+  process.exit(0);
+}
+
+// Production: only apply if DB host actually matches prod. Same belt+
+// suspenders rationale.
+if (isProduction && !looksLikeProd) {
+  console.log(
+    "[vercel-build-prelude] production build but DATABASE_URL doesn't match prod host — aborting db push.",
   );
   process.exit(0);
 }
 
 console.log(
-  `[vercel-build-prelude] VERCEL_ENV=${env}, DB host looks non-prod → running prisma db push.`,
+  `[vercel-build-prelude] VERCEL_ENV=${env} → running prisma db push`,
 );
+// db push (not migrate deploy) because the existing migration history
+// in this repo includes sqlite-era files that don't apply cleanly to
+// postgres. db push diffs the live schema against the Prisma schema
+// and applies the delta — purely additive in our case (new columns +
+// new table) so no data is at risk.
 execSync("npx prisma db push --skip-generate --accept-data-loss", {
   stdio: "inherit",
 });

@@ -27,6 +27,11 @@ type BreakdownRow = {
   totalPotentialCents: number;
   cardsWithMarket: number;
   maxPotentialCents: number;
+  /** 0-100 team market score injected by page.tsx. Aggregates per-player
+   * marketScore (Card-Ladder blend) over the team's roster. Top team
+   * pinned at 100, others slide on a log curve. Optional — older code
+   * paths don't populate it; UI hides the column when no row has data. */
+  marketScore?: number;
 };
 
 type CardLite = {
@@ -51,6 +56,9 @@ export default function TeamPriceEditor({
   playerBreakdownRows,
   cards,
   chaseCards,
+  playerGlobalScores,
+  playerTrends,
+  trendDays,
 }: {
   productId: string;
   initialBoxPriceCents: number | null;
@@ -67,6 +75,22 @@ export default function TeamPriceEditor({
    *  the PC importer; cards without PC data have null prices/pop and are
    *  filtered out by the Chase rollup. */
   chaseCards: ChaseCard[];
+  /** Cross-product player market score (0-100) — Card-Ladder-style
+   *  player index, sourced from each player's priced cards across
+   *  EVERY product, not just this one. Lets new products with no
+   *  in-set sales (e.g. day-of-release 2026 Bowman) still show real
+   *  player rankings using each player's hobby-wide footprint. */
+  playerGlobalScores?: Record<string, number>;
+  /** Per-player overall market trend (% change of player's basket of
+   *  priced cards from earliest snapshot to current). Card-Ladder-
+   *  index style — captures whole-portfolio movement, not single-card
+   *  noise. Indexed by playerName. */
+  playerTrends?: Record<string, number | null>;
+  /** Set-wide trend window in days — how far back the OLDEST snapshot
+   *  goes. Drives the column header label ("Trend (15d)" / "Trend (1d)")
+   *  so the user knows the period they're looking at without us having
+   *  to mock up artificial 7d/30d windows we don't yet have data for. */
+  trendDays?: number;
 }) {
   const router = useRouter();
   const [boxPrice, setBoxPrice] = useState(centsToDisplay(initialBoxPriceCents));
@@ -152,7 +176,12 @@ export default function TeamPriceEditor({
           cards={cards}
         />
       ) : (
-        <ChaseScoreboard cards={chaseCards} />
+        <ChaseScoreboard
+          cards={chaseCards}
+          playerGlobalScores={playerGlobalScores}
+          playerTrends={playerTrends}
+          trendDays={trendDays}
+        />
       )}
 
       {/* Pricing controls — box price + a passive market-freshness label.

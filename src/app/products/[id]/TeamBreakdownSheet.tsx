@@ -25,9 +25,18 @@ type Row = {
   totalPotentialCents: number;
   cardsWithMarket: number;
   maxPotentialCents: number;
+  /** 0-100 Market Score (only populated for the team view). Aggregates
+   * per-player marketScore across this team's roster. Top team pinned
+   * at 100. Hidden in the Player view — players already have their own
+   * market score on the Chase scoreboard. */
+  marketScore?: number;
 };
 
-type SortBy = "score" | "value";
+// "value" was the eBay-confirmed-market sort. Retired in favor of
+// Market (PriceCharting-backed). Kept in the type union so the
+// always-false anyValueData branches below typecheck cleanly without
+// dead-code edits. Setter never produces "value" anymore.
+type SortBy = "score" | "market" | "value";
 
 type CardLite = {
   team: string;
@@ -57,17 +66,19 @@ export default function TeamBreakdownSheet({
   const [bucketDetail, setBucketDetail] = useState<string | null>(null);
 
   const rawRows = view === "team" ? teamRows : playerRows;
-  // Re-sort rows in place each render. Score/Value selection drives the
-  // ordering; the column data itself is the same.
-  // For value sort, rows with no confirmed market data fall to the bottom
-  // ordered by score (so the table doesn't just dump them randomly).
+  // Re-sort rows in place each render. Score / Value / Market selection
+  // drives the ordering; the column data itself is the same. For Value
+  // sort, rows with no confirmed market data fall to the bottom ordered
+  // by score; for Market sort, rows with marketScore=0 fall to the
+  // bottom likewise. Tiebreaks always go by Break Score so rows in a
+  // bucket don't shuffle randomly between renders.
   const rows = useMemo(() => {
     const copy = [...rawRows];
-    if (sortBy === "value") {
+    if (sortBy === "market") {
       copy.sort((a, b) => {
-        if (b.confirmedMarketCents !== a.confirmedMarketCents) {
-          return b.confirmedMarketCents - a.confirmedMarketCents;
-        }
+        const am = a.marketScore ?? 0;
+        const bm = b.marketScore ?? 0;
+        if (bm !== am) return bm - am;
         return b.totalScore - a.totalScore;
       });
     } else {
@@ -79,7 +90,17 @@ export default function TeamBreakdownSheet({
   // data. We deliberately do NOT use the synthetic class-based estimate
   // here as the displayed number — it's too noisy across player tiers
   // (an Ohtani auto = $2500, a journeyman auto = $50, both class=10).
-  const anyValueData = rawRows.some((r) => r.cardsWithMarket > 0);
+  // The Value column (eBay confirmed-market sort) is fully retired — the
+  // new Market column (PriceCharting-backed market score) covers the
+  // same intent better. anyValueData stays defined as `false` so the
+  // existing conditional-render call sites below short-circuit cleanly
+  // without me having to rip them out everywhere.
+  const anyValueData = false;
+  // Only show Market Score column when (a) we're on team view AND (b) at
+  // least one row has a non-zero score. Player view hides it because the
+  // Chase scoreboard is the dedicated per-player market view.
+  const showMarketScore =
+    view === "team" && rawRows.some((r) => (r.marketScore ?? 0) > 0);
   const subjectLabel = view === "team" ? "Team" : "Player";
   // Team names get abbreviated on mobile (NYY, LAD, etc.), so the column
   // only needs ~64px on small screens. Player names don't have a clean
@@ -132,8 +153,12 @@ export default function TeamBreakdownSheet({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           <ViewToggle current={view} onChange={setView} />
-          {anyValueData && (
-            <SortToggle current={sortBy} onChange={setSortBy} />
+          {(anyValueData || showMarketScore) && (
+            <SortToggle
+              current={sortBy}
+              onChange={setSortBy}
+              showMarket={showMarketScore}
+            />
           )}
           <div className="text-[10px] text-slate-500 sm:text-[11px]">
             {rows.length} {view === "team" ? "teams" : "players"} ·{" "}
@@ -164,7 +189,18 @@ export default function TeamBreakdownSheet({
         per-row bg-ink / bg-white fills behind every cell so the
         rendering stays solid even if a cell ever does have a gap.
       */}
-      <div className="isolate max-h-[640px] overflow-auto overscroll-none">
+      {/*
+        overscroll-x-contain (NOT overscroll-none) — earlier this was
+        overscroll-none everywhere to kill iOS rubber-band, but that
+        also stopped vertical scroll from chaining to the page when the
+        cursor sat over the table on desktop. So a user scrolling
+        upward inside the scorecard had to mouse out of it before they
+        could keep scrolling the page. x-contain isolates only the
+        horizontal axis (to prevent the swipe-past-edge bug from
+        earlier), letting vertical scroll-chain back to the page when
+        you reach the top or bottom of the inner scrollbox.
+      */}
+      <div className="isolate max-h-[640px] overflow-auto overscroll-x-contain">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-50 bg-ink text-white">
             <tr className="bg-ink">
@@ -242,6 +278,16 @@ export default function TeamBreakdownSheet({
               >
                 Break Score
               </th>
+              {showMarketScore && (
+                <th
+                  className={`w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
+                    sortBy === "market" ? "bg-accent" : "bg-ink"
+                  }`}
+                  title="Team Market Score: 0-100 aggregate of each player's market index (Card-Ladder-style PSA 10 blend) summed across the team's roster, normalized so the top team in the set = 100. Read this alongside Break Score — the two answer different questions: 'how many points worth of card-types are on this team' vs 'how much real market value lives on this team.'"
+                >
+                  Market
+                </th>
+              )}
               {anyValueData && (
                 <th
                   className={`w-28 min-w-[112px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2 ${
@@ -320,6 +366,31 @@ export default function TeamBreakdownSheet({
                     >
                       {r.totalScore}
                     </td>
+                    {showMarketScore && (
+                      <td
+                        className={`w-24 min-w-[96px] px-3 py-2 text-right tabular-nums ${
+                          sortBy === "market" ? "bg-accent-tint" : "bg-white"
+                        }`}
+                        title={
+                          (r.marketScore ?? 0) > 0
+                            ? `Market Score ${r.marketScore}/100 — aggregate of player marketScores on this team, normalized so the top team in this set is 100.`
+                            : "No market data on this team's roster yet."
+                        }
+                      >
+                        {(r.marketScore ?? 0) > 0 ? (
+                          <>
+                            <span className="text-base font-extrabold text-ink">
+                              {r.marketScore}
+                            </span>
+                            <span className="text-[10px] font-medium text-slate-400">
+                              /100
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
                     {anyValueData && (
                       <td
                         className={`w-28 min-w-[112px] px-3 py-2 text-right font-extrabold tabular-nums tracking-tight-2 text-ink ${
@@ -373,6 +444,14 @@ export default function TeamBreakdownSheet({
                         >
                           <span className="mr-1.5 text-slate-300">└</span>
                           {p.playerName}
+                          {p.isRookie && (
+                            <span
+                              className="ml-1 text-[10px] font-bold text-accent"
+                              title="Rookie card in this set"
+                            >
+                              (R)
+                            </span>
+                          )}
                         </td>
                         {buckets.map((b) => {
                           const nums = p.byBucket.get(b.label) ?? [];
@@ -393,10 +472,20 @@ export default function TeamBreakdownSheet({
                               {nums.length === 0 ? (
                                 "—"
                               ) : (
-                                <div className="flex flex-wrap justify-end gap-x-1.5 gap-y-0 text-[10px] leading-tight">
-                                  {nums.map((n, ni) => (
-                                    <span key={`${n}-${ni}`}>#{n}</span>
-                                  ))}
+                                // Single-row summary instead of the
+                                // wrapping list. Long ones (Saggese
+                                // 50× #87 across every parallel) used
+                                // to blow the row to ~50 lines tall.
+                                // Now: show count + first card #;
+                                // truncate the rest.
+                                <div className="text-[10px] leading-tight">
+                                  <span className="font-semibold text-slate-700">
+                                    {nums.length}×
+                                  </span>{" "}
+                                  <span className="text-slate-500">
+                                    #{nums[0]}
+                                    {nums.length > 1 && "+"}
+                                  </span>
                                 </div>
                               )}
                             </td>
@@ -409,6 +498,14 @@ export default function TeamBreakdownSheet({
                         >
                           {p.totalScore}
                         </td>
+                        {showMarketScore && (
+                          // Player sub-rows have no per-player Market
+                          // Score in the team view (the Chase
+                          // scoreboard is the per-player view). Empty
+                          // cell keeps grid widths aligned with parent
+                          // team rows.
+                          <td className="w-24 min-w-[96px] bg-slate-50 px-3 py-1.5" />
+                        )}
                         {anyValueData && (
                           <td
                             className={`w-28 min-w-[112px] px-3 py-1.5 text-right text-[10px] text-slate-300 ${
@@ -451,6 +548,19 @@ export default function TeamBreakdownSheet({
               >
                 {grandTotalScore}
               </td>
+              {showMarketScore && (
+                // Market Score is normalized 0-100 per team, so a grand
+                // total doesn't carry meaning the way Break Score's
+                // sum does. Leave the total cell blank but present so
+                // the column stays aligned. Highlight the cell when
+                // sorted by Market to keep the column highlight
+                // consistent with the rest of the table.
+                <td
+                  className={`w-24 min-w-[96px] px-3 py-2 ${
+                    sortBy === "market" ? "bg-accent" : "bg-ink"
+                  }`}
+                />
+              )}
               {anyValueData && (
                 <td
                   className={`w-28 min-w-[112px] px-3 py-2 text-right tabular-nums text-white ${
@@ -482,26 +592,47 @@ export default function TeamBreakdownSheet({
  * caller can render player rows as real <tr> children of the parent
  * table and reuse the exact same column widths.
  */
+// True when the variation carries the Beckett rookie tag — variation
+// ending in "· RC" or containing the word "rookie". Mirrors the
+// detection used by ChaseScoreboard so the (R) marker reads
+// consistently across both views.
+const ROOKIE_RE = /·\s*RC$|\brc\b|rookie/i;
+function isRookieVariation(v: string | null | undefined): boolean {
+  return v != null && ROOKIE_RE.test(v);
+}
+
 function computePlayerRows(
   cards: CardLite[],
   buckets: AlgorithmBucket[],
 ): Array<{
   playerName: string;
+  isRookie: boolean;
   byBucket: Map<string, string[]>;
   totalScore: number;
 }> {
   const weightByLabel = new Map(buckets.map((b) => [b.label, b.weight]));
   const m = new Map<
     string,
-    { playerName: string; byBucket: Map<string, string[]>; totalScore: number }
+    {
+      playerName: string;
+      isRookie: boolean;
+      byBucket: Map<string, string[]>;
+      totalScore: number;
+    }
   >();
   for (const c of cards) {
     const cls = classifyCard(c.cardNumber, c.variation);
     let row = m.get(c.playerName);
     if (!row) {
-      row = { playerName: c.playerName, byBucket: new Map(), totalScore: 0 };
+      row = {
+        playerName: c.playerName,
+        isRookie: false,
+        byBucket: new Map(),
+        totalScore: 0,
+      };
       m.set(c.playerName, row);
     }
+    if (isRookieVariation(c.variation)) row.isRookie = true;
     let nums = row.byBucket.get(cls.label);
     if (!nums) {
       nums = [];
@@ -535,9 +666,11 @@ function ViewToggle({
 function SortToggle({
   current,
   onChange,
+  showMarket,
 }: {
   current: SortBy;
   onChange: (v: SortBy) => void;
+  showMarket: boolean;
 }) {
   return (
     <div className="inline-flex rounded-md bg-white p-0.5 ring-1 ring-slate-200 text-[11px] font-bold uppercase tracking-tight-2">
@@ -547,12 +680,14 @@ function SortToggle({
       >
         Score
       </ToggleButton>
-      <ToggleButton
-        active={current === "value"}
-        onClick={() => onChange("value")}
-      >
-        Value
-      </ToggleButton>
+      {showMarket && (
+        <ToggleButton
+          active={current === "market"}
+          onClick={() => onChange("market")}
+        >
+          Market
+        </ToggleButton>
+      )}
     </div>
   );
 }

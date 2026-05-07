@@ -10,6 +10,15 @@ import { formatUsd } from "@/lib/money";
  */
 export type ChaseCard = {
   playerName: string;
+  /** Real team when available ("Los Angeles Dodgers"), or "—" placeholder
+   * for cards the importer couldn't team-infer. Surfaced as part of the
+   * Player column subtitle so users see who the player rolls up under. */
+  team: string;
+  /** True when this card carries the Beckett rookie tag — variation
+   * ending in "· RC" (the convention from the xlsx upload) or
+   * containing the word "rookie". Aggregated up to player level by
+   * the rollup so any-rookie-card-in-set tags the player with (R). */
+  isRookie: boolean;
   cardNumber: string;
   variation: string | null;
   ungradedCents: number | null;
@@ -23,7 +32,20 @@ export type ChaseCard = {
 
 type PlayerRollup = {
   playerName: string;
+  /** First non-placeholder team encountered for this player. "—" only
+   * if every one of their cards has the placeholder; in practice that's
+   * rare since manual checklist uploads carry real teams. */
+  team: string;
+  /** True if ANY of the player's cards in this set is rookie-tagged.
+   * Drives the "(R)" suffix shown after the player name. */
+  isRookie: boolean;
   cardCount: number;
+  /** % change of the player's overall market basket over the snapshot
+   * window — not just the top card. Card-Ladder-index style:
+   * aggregates all of the player's priced cards' movements into a
+   * single market-direction number. Filled in from the playerTrends
+   * map after rollup. */
+  marketTrendPct: number | null;
   /** Highest PSA 10 across this player's cards. Drives the score —
    *  Card Ladder's player-index logic: a /1 Superfractor selling for
    *  $50k IS a market signal that lifts the player's whole market,
@@ -39,10 +61,19 @@ type PlayerRollup = {
    *  one high-priced /1 and nothing else doesn't dominate over a
    *  player with depth (multiple solid parallels). */
   medianPsa10Cents: number;
-  /** 0-100 market score. Log-normalized against the set's max. Combines
-   *  topPsa10 (60% — chase signal) and medianPsa10 (40% — depth) so
-   *  both headline value AND breadth contribute. */
+  /** 0-100 player market score — Card-Ladder-style index. Sourced
+   *  from the player's priced cards across ALL products in the DB
+   *  (cross-product / hobby-wide footprint). Stable across product
+   *  pages: a player's "Overall" reads the same on every product
+   *  they appear in. Drives the rank order. */
   marketScore: number;
+  /** 0-100 set-specific market score — same blend math, but sourced
+   *  ONLY from this product's priced cards. Drops to 0 on day-of-
+   *  release when nothing's traded yet. Useful contrast: a player
+   *  whose Overall is high but whose In-Set is low signals "the
+   *  market knows them, but their cards in THIS set aren't trading
+   *  yet" — and vice versa for set-specific heat. */
+  inSetMarketScore: number;
   /** Combined PSA + CGC pop counts — sum across player's cards. Pop
    *  volume is its own market signal: collectors only pay grading fees
    *  on cards they think are worth grading. Gem rate is shown in its
@@ -61,24 +92,40 @@ function median(nums: number[]): number {
     : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// Per-card effective value: PSA 10 if PC has the comp, otherwise
+// raw × 6. Lets cards with raw-only comps (Arnold's BD-30 Black /1
+// at $3K raw, no graded comp yet) still feed the player's blend. 6
+// is conservative — high-end auto chase often sells at 10-15× raw
+// graded, but underestimating beats over-inflating un-traded cards.
+const RAW_TO_GRADED_MULT = 6;
+function effectiveValue(c: ChaseCard): number {
+  const psa = c.psa10Cents ?? 0;
+  const raw = (c.ungradedCents ?? 0) * RAW_TO_GRADED_MULT;
+  return Math.max(psa, raw);
+}
+
 function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
   const m = new Map<
     string,
     PlayerRollup & { _psa10s: number[] }
   >();
   for (const c of cards) {
-    const psa10 = c.psa10Cents ?? 0;
+    const psa10 = effectiveValue(c);
     let row = m.get(c.playerName);
     if (!row) {
       row = {
         playerName: c.playerName,
+        team: "—",
+        isRookie: false,
         cardCount: 0,
         topPsa10Cents: 0,
         topVariation: null,
         topCardNumber: "",
         topImageUrl: null,
+        marketTrendPct: null,
         medianPsa10Cents: 0,
         marketScore: 0,
+        inSetMarketScore: 0,
         popG10Sum: 0,
         popTotalSum: 0,
         gemRate: null,
@@ -87,6 +134,11 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       m.set(c.playerName, row);
     }
     row.cardCount++;
+    // Take the first real team value we encounter — usually the same
+    // for all of a player's cards in a single set unless they were
+    // traded mid-season.
+    if (row.team === "—" && c.team && c.team !== "—") row.team = c.team;
+    if (c.isRookie) row.isRookie = true;
     if (psa10 > 0) row._psa10s.push(psa10);
     if (psa10 > row.topPsa10Cents) {
       row.topPsa10Cents = psa10;
@@ -114,10 +166,15 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
   if (maxBlend > 0) {
     for (const p of players) {
       const playerBlend = blend(p.topPsa10Cents, p.medianPsa10Cents);
-      p.marketScore =
+      const score =
         playerBlend > 0
           ? Math.max(1, Math.round((playerBlend / maxBlend) * 100))
           : 0;
+      // Both fields seeded with the in-set score initially. The page
+      // overrides marketScore with the cross-product (Overall) score
+      // afterward; inSetMarketScore stays as the set-specific snapshot.
+      p.marketScore = score;
+      p.inSetMarketScore = score;
     }
   }
   for (const row of players) {
@@ -127,11 +184,66 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
   return players.sort((a, b) => b.marketScore - a.marketScore);
 }
 
-export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
-  const players = useMemo(() => rollupByPlayer(cards), [cards]);
+export default function ChaseScoreboard({
+  cards,
+  playerGlobalScores,
+  playerTrends,
+  trendDays,
+}: {
+  cards: ChaseCard[];
+  playerGlobalScores?: Record<string, number>;
+  playerTrends?: Record<string, number | null>;
+  trendDays?: number;
+}) {
+  const players = useMemo(() => {
+    const rollup = rollupByPlayer(cards);
+    // Override marketScore with the cross-product (global) player
+    // index when available. The in-set rollup gives us all the
+    // metadata (top card, parallel count, gem rate) but the SCORE
+    // itself is sourced from each player's hobby-wide priced data
+    // so that new products without in-set trades still show real
+    // rankings on day 1. When global data is missing for a player
+    // (rare — only true rookies with zero traded cards anywhere),
+    // we keep the in-set rollup score as fallback.
+    if (playerGlobalScores) {
+      for (const r of rollup) {
+        const g = playerGlobalScores[r.playerName];
+        if (g != null && g > 0) {
+          r.marketScore = g;
+        }
+      }
+    }
+    if (playerTrends) {
+      for (const r of rollup) {
+        const pct = playerTrends[r.playerName];
+        if (pct != null && Number.isFinite(pct)) {
+          r.marketTrendPct = pct;
+        }
+      }
+    }
+    // Re-sort after overriding scores so the displayed top-20 reflects
+    // the global player market, not the in-set rollup default order.
+    rollup.sort((a, b) => b.marketScore - a.marketScore);
+    return rollup;
+  }, [cards, playerGlobalScores, playerTrends]);
   const top20 = players.slice(0, 20);
-  const hasAnyValue = top20.some((p) => p.topPsa10Cents > 0);
+  // "Has data" = any in-set price OR any global player score. The
+  // global score keeps the Chase view useful for brand-new products
+  // (Bowman 2026 etc.) where no cards in this set have traded but
+  // the players already have hobby-wide market footprint.
+  const hasAnyValue =
+    top20.some((p) => p.topPsa10Cents > 0) ||
+    top20.some((p) => p.marketScore > 0);
   const hasAnyPop = top20.some((p) => p.popTotalSum > 0);
+  // Only show Trend column when at least one player has trend data
+  // (i.e. ≥2 snapshots on at least one of their priced cards). Day-1
+  // of tracking nothing shows; column fills in as the cron runs each
+  // morning.
+  const hasAnyTrend = top20.some((p) => p.marketTrendPct != null);
+  const trendLabel =
+    trendDays != null && trendDays >= 1
+      ? `${Math.round(trendDays)}D Trend`
+      : "Trend";
   const [explainerOpen, setExplainerOpen] = useState(false);
 
   if (!hasAnyValue) {
@@ -189,14 +301,22 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
               <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2">
                 Top card
               </th>
-              <th className="w-24 min-w-[96px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
+              {hasAnyTrend && (
+                <th
+                  className="w-20 min-w-[80px] bg-ink px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                  title={`% change in the player's top card effective value over the snapshot window (${trendDays != null ? Math.round(trendDays) + " days" : "current"}). Calculated against the earliest CardPriceSnapshot on each player's top card. Fills in as the daily cron accumulates more history.`}
+                >
+                  {trendLabel}
+                </th>
+              )}
+              <th className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
                 <button
                   type="button"
                   onClick={() => setExplainerOpen(true)}
                   className="inline-flex items-center gap-1 hover:text-accent"
                   title="What is Market Score?"
                 >
-                  <span>Market Score</span>
+                  <span>Overall</span>
                   <span
                     aria-hidden
                     className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white/40 text-[8px] font-bold text-white/70"
@@ -204,6 +324,12 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                     i
                   </span>
                 </button>
+              </th>
+              <th
+                className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
+                title="Set-specific market score — same blend math but sourced ONLY from cards priced in this product. Drops to '—' on day-of-release before any in-set sales accumulate. Useful contrast against Overall: a player whose Overall is high but In-Set is low signals 'the market knows them, but their cards in THIS set haven't traded yet'; high In-Set with lower Overall flags set-specific heat."
+              >
+                In Set
               </th>
               <th
                 className="w-20 min-w-[80px] px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2"
@@ -230,8 +356,23 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                   </td>
                   <td className="px-3 py-2 font-semibold tracking-tight-2">
                     {p.playerName}
+                    {p.isRookie && (
+                      <span
+                        className="ml-1 text-[10px] font-bold text-accent"
+                        title="Rookie card in this set"
+                      >
+                        (R)
+                      </span>
+                    )}
                     <div className="text-[10px] font-medium text-slate-400">
-                      {p.cardCount} {p.cardCount === 1 ? "card" : "parallels"} in set
+                      {p.team !== "—" && (
+                        <>
+                          <span className="text-slate-500">{p.team}</span>
+                          <span aria-hidden> · </span>
+                        </>
+                      )}
+                      {p.cardCount}{" "}
+                      {p.cardCount === 1 ? "card" : "parallels"} in set
                     </div>
                   </td>
                   <td className="px-3 py-2 text-[11px] text-slate-600">
@@ -258,14 +399,62 @@ export default function ChaseScoreboard({ cards }: { cards: ChaseCard[] }) {
                       </div>
                     </div>
                   </td>
+                  {hasAnyTrend && (
+                    <td
+                      className="w-20 min-w-[80px] px-3 py-2 text-right tabular-nums"
+                      title={
+                        p.marketTrendPct != null
+                          ? `${p.marketTrendPct.toFixed(1)}% change in this player's overall market basket over the snapshot window`
+                          : "No trend data yet for this player's basket."
+                      }
+                    >
+                      {p.marketTrendPct != null ? (
+                        <span
+                          className={`text-[12px] font-bold ${
+                            p.marketTrendPct > 0
+                              ? "text-emerald-600"
+                              : p.marketTrendPct < 0
+                                ? "text-accent"
+                                : "text-slate-400"
+                          }`}
+                        >
+                          {p.marketTrendPct > 0 ? "↑" : p.marketTrendPct < 0 ? "↓" : "="}
+                          {Math.abs(p.marketTrendPct).toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                  )}
                   <td
                     className="px-3 py-2 text-right tabular-nums"
-                    title={`${p.marketScore}/100. Log-normalized against the top player's PSA 10 in this set.`}
+                    title={`Overall: ${p.marketScore}/100. Cross-product player index — sourced from this player's priced cards across every product in the DB.`}
                   >
                     {p.marketScore > 0 ? (
                       <>
                         <span className="text-base font-extrabold text-ink">
                           {p.marketScore}
+                        </span>
+                        <span className="text-[10px] font-medium text-slate-400">
+                          /100
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
+                  <td
+                    className="px-3 py-2 text-right tabular-nums"
+                    title={
+                      p.inSetMarketScore > 0
+                        ? `In-Set: ${p.inSetMarketScore}/100. Same blend math but only this product's priced cards.`
+                        : "No in-set price data yet for this player."
+                    }
+                  >
+                    {p.inSetMarketScore > 0 ? (
+                      <>
+                        <span className="text-sm font-bold text-slate-700">
+                          {p.inSetMarketScore}
                         </span>
                         <span className="text-[10px] font-medium text-slate-400">
                           /100
@@ -353,47 +542,38 @@ function MarketScoreExplainer({ onClose }: { onClose: () => void }) {
 
         <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-700">
           <p>
-            A <strong>0–100 player market index</strong>, modeled after
-            the way Card Ladder builds player indexes — the trophy card
-            isn&apos;t something you&apos;ll personally pull from a break,
-            but its sale price IS a real market signal that lifts the
-            player&apos;s whole market.
+            A <strong>0–100 player market index</strong> — like a stock
+            index for each player&apos;s card market in this set. Top
+            player in the set is pinned at 100; everyone else slides
+            relative to them.
           </p>
-          <div className="rounded-lg border border-slate-200 bg-bone p-3 text-xs">
-            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
-              Formula
-            </div>
-            <code className="mt-1 block whitespace-pre-wrap font-mono text-[11px] text-ink">
-              blend = log(top PSA 10 + 1) × 0.6
-                  + log(median PSA 10 + 1) × 0.4{"\n"}
-              score = round(blend / set_max_blend × 100)
-            </code>
-          </div>
           <ul className="space-y-1.5 text-[13px]">
             <li>
-              <strong>60% top PSA 10</strong> — the chase signal. A
-              Superfractor /1 selling at $50K tells the market this
-              player&apos;s cards are worth more across the board.
+              <strong>Chase signal weighs heaviest.</strong> The
+              trophy card isn&apos;t something you&apos;ll personally
+              pull, but its sale price IS the strongest signal of where
+              the player&apos;s market sits — and lifts the value of
+              their other cards across the board.
             </li>
             <li>
-              <strong>40% median PSA 10</strong> — the depth signal.
-              Counterweight so a player with one high-priced /1 and
-              nothing else doesn&apos;t outrank a player with five solid
-              parallels.
+              <strong>Depth matters too.</strong> A player with a few
+              solid parallels selling consistently shouldn&apos;t lose
+              to one whose only data point is a single anomalous /1
+              sale. We weight median sale data alongside the top.
             </li>
             <li>
-              <strong>Log-normalized</strong> against the set&apos;s top
-              player. Top player = 100, others slide on a log curve so
-              order-of-magnitude differences read cleanly without lower
-              ranks squashed to single digits.
+              <strong>Both graded and raw comps count.</strong> Many
+              ultra-rare parallels (/1s, /5 Refractors) trade actively
+              on the secondary market without ever being graded — we
+              factor those in instead of pretending they don&apos;t
+              exist.
+            </li>
+            <li>
+              <strong>Read alongside Gem Rate.</strong> Pop volume is a
+              separate market-validity signal: collectors only pay
+              grading fees on cards they think are worth grading.
             </li>
           </ul>
-          <p className="text-xs text-slate-500">
-            The Gem Rate column adds a separate market-validity signal:
-            collectors only pay grading fees on cards they think are
-            worth grading, so high pop volume = real demand. Both
-            columns are designed to be read together.
-          </p>
         </div>
       </div>
     </div>

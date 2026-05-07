@@ -28,32 +28,52 @@ import {
 } from "@/lib/sources/pricing/pricecharting-importer";
 
 export const dynamic = "force-dynamic";
-// Vercel Hobby plan caps serverless functions at 300s. A single full
-// Topps Chrome import runs ~3 min so this fits with margin. If
-// TRACKED_SLUGS ever grows past what fits in 300s, split into per-set
-// cron entries (one schedule per slug) rather than one omnibus cron.
-export const maxDuration = 300;
+// Pro plan supports up to 800s. Set to 800 so a fresh full import
+// across all TRACKED_SLUGS (Chrome base + auto + Sapphire + Bowman
+// base + 2 auto slugs) finishes in one invocation. Team-inferred
+// enrichment dominates wall time on first runs; subsequent runs are
+// mostly fast updates and finish well inside the budget.
+export const maxDuration = 800;
 
-function isAuthorized(req: NextRequest): boolean {
+type AuthResult = { ok: true } | { ok: false; reason: string };
+
+function checkAuth(req: NextRequest): AuthResult {
   const cronSecret = process.env.CRON_SECRET;
   const adminSecret = process.env.ADMIN_SECRET;
 
-  // Vercel cron sends `Authorization: Bearer <CRON_SECRET>`.
   const auth = req.headers.get("authorization") ?? "";
-  if (cronSecret && auth === `Bearer ${cronSecret}`) return true;
-
-  // Manual bootstrap: ?secret=<ADMIN_SECRET>. Preview/development only
-  // because ADMIN_SECRET isn't set in production environments.
   const url = new URL(req.url);
   const querySecret = url.searchParams.get("secret");
-  if (adminSecret && querySecret && querySecret === adminSecret) return true;
 
-  return false;
+  // Vercel cron sends `Authorization: Bearer <CRON_SECRET>`.
+  if (cronSecret && auth === `Bearer ${cronSecret}`) return { ok: true };
+
+  // Manual bootstrap: ?secret=<ADMIN_SECRET>. Preview-only because
+  // ADMIN_SECRET is set only in Preview/Development env.
+  if (adminSecret && querySecret && querySecret === adminSecret)
+    return { ok: true };
+
+  // Diagnostic — never reveals secret values, only whether they're
+  // configured and whether the presented value's length looks plausible.
+  // Helps debug the most common deploy issue: env var not picked up
+  // because the deployment is stale.
+  const reasons: string[] = [];
+  if (!cronSecret) reasons.push("CRON_SECRET env not set on this deployment");
+  if (!auth) reasons.push("no Authorization header");
+  else if (!auth.startsWith("Bearer ")) reasons.push("Authorization not 'Bearer <secret>' format");
+  else if (cronSecret) {
+    const presented = auth.slice(7);
+    reasons.push(
+      `secret mismatch (presented length=${presented.length}, expected length=${cronSecret.length})`,
+    );
+  }
+  return { ok: false, reason: reasons.join("; ") || "unknown" };
 }
 
 export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) {
-    return new Response("forbidden", { status: 403 });
+  const auth = checkAuth(req);
+  if (!auth.ok) {
+    return new Response(`forbidden — ${auth.reason}`, { status: 403 });
   }
 
   const url = new URL(req.url);
