@@ -56,6 +56,7 @@ export default function TeamPriceEditor({
   playerBreakdownRows,
   cards,
   chaseCards,
+  playerGlobalScores,
   playerTrends,
   trendDays,
 }: {
@@ -74,6 +75,12 @@ export default function TeamPriceEditor({
    *  the PC importer; cards without PC data have null prices/pop and are
    *  filtered out by the Chase rollup. */
   chaseCards: ChaseCard[];
+  /** Cross-product player market score (0-100) — Card-Ladder-style
+   *  player index, sourced from each player's priced cards across
+   *  EVERY product, not just this one. Lets new products with no
+   *  in-set sales (e.g. day-of-release 2026 Bowman) still show real
+   *  player rankings using each player's hobby-wide footprint. */
+  playerGlobalScores?: Record<string, number>;
   /** Per-player overall market trend (% change of player's basket of
    *  priced cards from earliest snapshot to current). Card-Ladder-
    *  index style — captures whole-portfolio movement, not single-card
@@ -171,6 +178,7 @@ export default function TeamPriceEditor({
       ) : (
         <ChaseScoreboard
           cards={chaseCards}
+          playerGlobalScores={playerGlobalScores}
           playerTrends={playerTrends}
           trendDays={trendDays}
         />

@@ -75,14 +75,95 @@ export default async function ProductPage({
   // normalize across teams (top team = 100). Players with zero priced
   // cards contribute nothing — keeps the score honest about market data
   // coverage in this set.
-  const teamMarketScores = computeTeamMarketScores(
-    product.cards.map((c) => ({
-      team: c.team,
+  // Cross-product player market — the key piece for new products like
+  // 2026 Bowman that have no in-set sales data yet. Pulls each player's
+  // priced cards from EVERY product in the DB, so Judge / Ohtani / etc.
+  // get scored from their full hobby footprint instead of going blank
+  // because no 2026 Bowman card has traded yet. Rookies still rely on
+  // their existing data (Bowman Draft, Topps Chrome) — which is exactly
+  // how Card Ladder's player indexes work.
+  const playersInProduct = [...new Set(product.cards.map((c) => c.playerName))];
+  const playersGlobalCards = await prisma.card.findMany({
+    where: {
+      playerName: { in: playersInProduct },
+      OR: [
+        { psa10Cents: { gt: 0 } },
+        { ungradedCents: { gt: 0 } },
+      ],
+    },
+    select: {
+      playerName: true,
+      psa10Cents: true,
+      ungradedCents: true,
+    },
+  });
+  // Build a synthetic "card list" that mirrors product.cards but with
+  // the player's TEAM from this product (so team aggregation still maps
+  // correctly) and prices coming from the cross-product feed. Each
+  // player contributes one synthetic card per priced card they have
+  // anywhere in the DB.
+  const teamByPlayer = new Map<string, string>();
+  for (const c of product.cards) {
+    if (c.team && c.team !== "—" && !teamByPlayer.has(c.playerName)) {
+      teamByPlayer.set(c.playerName, c.team);
+    }
+  }
+  const crossProductCards = playersGlobalCards
+    .map((c) => ({
+      team: teamByPlayer.get(c.playerName) ?? "—",
       playerName: c.playerName,
       psa10Cents: c.psa10Cents,
       ungradedCents: c.ungradedCents,
-    })),
-  );
+    }))
+    .filter((c) => c.team !== "—");
+
+  const teamMarketScores = computeTeamMarketScores(crossProductCards);
+
+  // Shared helpers for the price-blend and trend math below. Hoisted
+  // so they're available to the global player market computation,
+  // the trend computation, AND the team aggregation.
+  const RAW_TO_GRADED = 6;
+  const eff = (psa: number | null, raw: number | null) =>
+    Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
+  const medianFn = (a: number[]) => {
+    if (a.length === 0) return 0;
+    const s = [...a].sort((x, y) => x - y);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+
+  // Per-player GLOBAL market score — Card-Ladder-style player index,
+  // 0-100 normalized against the top player among those who appear in
+  // this product. Same blend math the in-set marketScore uses
+  // (log(top) × 0.6 + log(median) × 0.4) but sourced from the player's
+  // priced cards across EVERY product, not just this one. Drives the
+  // Chase view's marketScore so a brand-new product like 2026 Bowman
+  // doesn't show empty rankings on release — Judge / Ohtani / Witt etc.
+  // already have real market data from prior sets.
+  const playerCrossPrices = new Map<string, number[]>();
+  for (const c of playersGlobalCards) {
+    const v = eff(c.psa10Cents, c.ungradedCents);
+    if (v <= 0) continue;
+    const arr = playerCrossPrices.get(c.playerName) ?? [];
+    arr.push(v);
+    playerCrossPrices.set(c.playerName, arr);
+  }
+  const playerCrossBlend = new Map<string, number>();
+  for (const [name, prices] of playerCrossPrices) {
+    const top = Math.max(...prices);
+    const med = medianFn(prices);
+    playerCrossBlend.set(name, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
+  }
+  const maxCrossBlend = Math.max(0, ...playerCrossBlend.values());
+  const playerGlobalScores: Record<string, number> = {};
+  if (maxCrossBlend > 0) {
+    for (const [name, blend] of playerCrossBlend) {
+      playerGlobalScores[name] = Math.max(
+        1,
+        Math.round((blend / maxCrossBlend) * 100),
+      );
+    }
+  }
 
   // Per-card price trend — % change in effective value from the
   // earliest snapshot to current. Powers the "Trend" column on the
@@ -114,9 +195,6 @@ export default async function ProductPage({
       earliestSnapshot.set(s.cardId, s);
     }
   }
-  const RAW_TO_GRADED = 6;
-  const eff = (psa: number | null, raw: number | null) =>
-    Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
   const now = new Date();
   // Per-PLAYER trend — % change in the player's overall market (their
   // basket of priced cards), not just their top card. Mirrors how
@@ -130,12 +208,7 @@ export default async function ProductPage({
   //   - "current" value = today's effective value
   // Player's market = top + median of those values across all priced
   // cards. Trend = % change of that market figure.
-  const median = (a: number[]) => {
-    if (a.length === 0) return 0;
-    const s = [...a].sort((x, y) => x - y);
-    const m = Math.floor(s.length / 2);
-    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-  };
+  // Reuse the hoisted medianFn helper.
   const cardsByPlayer = new Map<string, typeof product.cards>();
   for (const c of product.cards) {
     const arr = cardsByPlayer.get(c.playerName) ?? [];
@@ -161,9 +234,9 @@ export default async function ProductPage({
       continue;
     }
     const earlierMarket =
-      Math.max(...earlierValues) + median(earlierValues);
+      Math.max(...earlierValues) + medianFn(earlierValues);
     const currentMarket =
-      Math.max(...currentValues) + median(currentValues);
+      Math.max(...currentValues) + medianFn(currentValues);
     if (earlierMarket <= 0 || earlierMarket === currentMarket) {
       playerTrends[playerName] = null;
       continue;
@@ -316,6 +389,7 @@ export default async function ProductPage({
                   popG10: c.popG10,
                   popTotal: c.popTotal,
                 }))}
+                playerGlobalScores={playerGlobalScores}
                 playerTrends={playerTrends}
                 trendDays={trendMaxDays}
               />

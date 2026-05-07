@@ -161,19 +161,33 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
 
 export default function ChaseScoreboard({
   cards,
+  playerGlobalScores,
   playerTrends,
   trendDays,
 }: {
   cards: ChaseCard[];
+  playerGlobalScores?: Record<string, number>;
   playerTrends?: Record<string, number | null>;
   trendDays?: number;
 }) {
   const players = useMemo(() => {
     const rollup = rollupByPlayer(cards);
-    // Inject per-player trend after rollup. Trend is computed
-    // server-side across the full priced-card basket (not just the
-    // top card) so the value here reflects the player's overall
-    // market direction, similar to a Card Ladder player index.
+    // Override marketScore with the cross-product (global) player
+    // index when available. The in-set rollup gives us all the
+    // metadata (top card, parallel count, gem rate) but the SCORE
+    // itself is sourced from each player's hobby-wide priced data
+    // so that new products without in-set trades still show real
+    // rankings on day 1. When global data is missing for a player
+    // (rare — only true rookies with zero traded cards anywhere),
+    // we keep the in-set rollup score as fallback.
+    if (playerGlobalScores) {
+      for (const r of rollup) {
+        const g = playerGlobalScores[r.playerName];
+        if (g != null && g > 0) {
+          r.marketScore = g;
+        }
+      }
+    }
     if (playerTrends) {
       for (const r of rollup) {
         const pct = playerTrends[r.playerName];
@@ -182,10 +196,19 @@ export default function ChaseScoreboard({
         }
       }
     }
+    // Re-sort after overriding scores so the displayed top-20 reflects
+    // the global player market, not the in-set rollup default order.
+    rollup.sort((a, b) => b.marketScore - a.marketScore);
     return rollup;
-  }, [cards, playerTrends]);
+  }, [cards, playerGlobalScores, playerTrends]);
   const top20 = players.slice(0, 20);
-  const hasAnyValue = top20.some((p) => p.topPsa10Cents > 0);
+  // "Has data" = any in-set price OR any global player score. The
+  // global score keeps the Chase view useful for brand-new products
+  // (Bowman 2026 etc.) where no cards in this set have traded but
+  // the players already have hobby-wide market footprint.
+  const hasAnyValue =
+    top20.some((p) => p.topPsa10Cents > 0) ||
+    top20.some((p) => p.marketScore > 0);
   const hasAnyPop = top20.some((p) => p.popTotalSum > 0);
   // Only show Trend column when at least one player has trend data
   // (i.e. ≥2 snapshots on at least one of their priced cards). Day-1
