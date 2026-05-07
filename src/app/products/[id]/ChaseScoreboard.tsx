@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatUsd } from "@/lib/money";
+import { isAutoCard } from "@/lib/scoring";
 
 /**
  * Per-card data the Chase view needs. A subset of the full Card row,
@@ -40,6 +41,11 @@ type PlayerRollup = {
    * Drives the "(R)" suffix shown after the player name. */
   isRookie: boolean;
   cardCount: number;
+  /** How many of this player's cards in the set are autographs.
+   * Drives the "X autos" subtitle so users can see auto chase
+   * count at a glance — autos are the biggest chases by far so
+   * the count matters more than the raw parallel total. */
+  autoCount: number;
   /** % change of the player's overall market basket over the snapshot
    * window — not just the top card. Card-Ladder-index style:
    * aggregates all of the player's priced cards' movements into a
@@ -118,6 +124,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
         team: "—",
         isRookie: false,
         cardCount: 0,
+        autoCount: 0,
         topPsa10Cents: 0,
         topVariation: null,
         topCardNumber: "",
@@ -134,6 +141,7 @@ function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
       m.set(c.playerName, row);
     }
     row.cardCount++;
+    if (isAutoCard(c.cardNumber, c.variation)) row.autoCount++;
     // Take the first real team value we encounter — usually the same
     // for all of a player's cards in a single set unless they were
     // traded mid-season.
@@ -394,7 +402,18 @@ export default function ChaseScoreboard({
                         </>
                       )}
                       {p.cardCount}{" "}
-                      {p.cardCount === 1 ? "card" : "parallels"} in set
+                      {p.cardCount === 1 ? "card" : "parallels"}
+                      {p.autoCount > 0 && (
+                        <>
+                          <span aria-hidden> · </span>
+                          <span
+                            className="font-bold text-accent"
+                            title={`${p.autoCount} autograph${p.autoCount === 1 ? "" : "s"} in this set`}
+                          >
+                            {p.autoCount} auto{p.autoCount === 1 ? "" : "s"}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-[11px] text-slate-600">
