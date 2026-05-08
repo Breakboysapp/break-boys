@@ -146,6 +146,36 @@ export function isProspectCard(
   return false;
 }
 
+/**
+ * True when the card's variation indicates the player's rookie card.
+ *
+ * Three matching signals (any one is enough):
+ *   - Beckett's clean `· RC` suffix (the canonical xlsx tag)
+ *   - Standalone `RC` as a word boundary token
+ *   - The literal word "rookie" anywhere in the variation
+ *
+ * BUT — explicitly false for **mixed-class subsets** like "Base
+ * Rookie and Veteran Retail Autographs" or "Paper Rookies & Veterans"
+ * where the subset includes both rookies and veterans. The subset
+ * title contains "rookie" but the named player could be either —
+ * we can't infer rookie status from membership in the subset alone.
+ *
+ * Example false positive caught by this logic: Nick Kurtz on
+ * `Base Rookie and Veteran Retail Autographs` in 2026 Bowman.
+ * Kurtz debuted in 2025; he's a veteran in 2026 sets. The previous
+ * regex tagged him because the subset name contained "rookie".
+ */
+export function isRookieVariation(
+  variation: string | null | undefined,
+): boolean {
+  if (!variation) return false;
+  // Mixed-class subset guard. Both tokens present → can't infer.
+  if (/rookie/i.test(variation) && /\bveterans?\b/i.test(variation)) {
+    return false;
+  }
+  return /·\s*RC$|\bRC\b|rookie/i.test(variation);
+}
+
 export type CardLite = {
   cardNumber: string;
   team: string;

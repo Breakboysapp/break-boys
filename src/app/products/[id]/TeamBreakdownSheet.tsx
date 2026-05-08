@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { classifyCard, splitVariationLabel } from "@/lib/scoring";
+import {
+  classifyCard,
+  isRookieVariation,
+  splitVariationLabel,
+} from "@/lib/scoring";
 import { formatUsd } from "@/lib/money";
 import { playerSlug } from "@/lib/player-slug";
 import { getTeamAbbreviation } from "@/lib/team-abbreviations";
@@ -655,15 +659,6 @@ export default function TeamBreakdownSheet({
  * caller can render player rows as real <tr> children of the parent
  * table and reuse the exact same column widths.
  */
-// True when the variation carries the Beckett rookie tag — variation
-// ending in "· RC" or containing the word "rookie". Mirrors the
-// detection used by ChaseScoreboard so the (R) marker reads
-// consistently across both views.
-const ROOKIE_RE = /·\s*RC$|\brc\b|rookie/i;
-function isRookieVariation(v: string | null | undefined): boolean {
-  return v != null && ROOKIE_RE.test(v);
-}
-
 function computePlayerRows(
   cards: CardLite[],
   buckets: AlgorithmBucket[],

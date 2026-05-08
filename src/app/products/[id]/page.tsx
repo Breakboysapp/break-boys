@@ -5,6 +5,7 @@ import {
   PRICING_BLEND_ALPHA,
   computeBreakdown,
   isProspectCard,
+  isRookieVariation,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
 import {
@@ -306,15 +307,13 @@ export default async function ProductPage({
   }
 
   // Per-player "is rookie?" map. A player is a rookie in this product
-  // if ANY of their cards carries the Beckett rookie tag — variation
-  // ending in "· RC" or containing the word "rookie". Used to render
-  // the (R) marker on the player-view top-level rows of the team
-  // breakdown; the team-expanded sub-rows derive isRookie themselves
-  // from the underlying cards, but the top-level player rows only
-  // carry aggregated metadata.
+  // if ANY of their cards carries the Beckett rookie tag. Detection
+  // logic in isRookieVariation — explicitly excludes mixed-class
+  // subsets ("Rookie and Veteran") so veterans on those subsets
+  // (e.g. Nick Kurtz in 2026 Bowman) don't get tagged as rookies.
   const playerRookieMap: Record<string, boolean> = {};
   for (const c of cards) {
-    if (c.variation && /·\s*RC$|\brc\b|rookie/i.test(c.variation)) {
+    if (isRookieVariation(c.variation)) {
       playerRookieMap[c.playerName] = true;
     }
   }
@@ -537,12 +536,12 @@ export default async function ProductPage({
                 chaseCards={cards.map((c) => ({
                   playerName: c.playerName,
                   team: c.team,
-                  // Rookie detection: Beckett xlsx tags rookies with
-                  // "· RC" suffix in the variation; some sheets use
-                  // the literal word "Rookie". Pattern catches both.
-                  isRookie:
-                    c.variation != null &&
-                    /·\s*RC$|\brc\b|rookie/i.test(c.variation),
+                  // Rookie detection via shared helper — handles
+                  // Beckett's "· RC" suffix, standalone "RC", and the
+                  // word "rookie", while excluding mixed-class
+                  // "Rookie and Veteran" subsets to avoid false
+                  // positives on veterans who happen to land there.
+                  isRookie: isRookieVariation(c.variation),
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   ungradedCents: c.ungradedCents,
