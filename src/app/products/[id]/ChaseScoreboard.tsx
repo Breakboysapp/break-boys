@@ -356,7 +356,7 @@ export default function ChaseScoreboard({
                   )}
                   <td
                     className="px-3 py-2 text-right tabular-nums"
-                    title={`Overall: ${p.marketScore}/100. Blended player index — 55% cross-product priced cards (PriceCharting) + 45% recent sales activity (Card Hedger).`}
+                    title={`Overall: ${p.marketScore}/100. Blended player index — 55% cross-product priced cards + 45% recent sales activity.`}
                   >
                     {p.marketScore > 0 ? (
                       <>
