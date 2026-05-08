@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -158,6 +158,78 @@ export default function TeamPriceEditor({
   const [savingBox, setSavingBox] = useState(false);
   const [scoreboard, setScoreboard] = useState<Scoreboard>("team");
 
+  // CH trending data is fetched client-side (off the SSR critical
+  // path) so the page renders immediately with PC-only Overall
+  // scores and an empty Hot This Week skeleton. The /api route
+  // returns within 1-5s depending on CH's response time and
+  // activity-score blending happens here.
+  type LiveTrending = {
+    hotThisWeek: HotPlayer[];
+    playerTrendingMap: Record<
+      string,
+      {
+        isTrending: boolean;
+        currentWeekSales: number;
+        spikeMultiple: number;
+        currentWeekCents: number;
+      }
+    >;
+    playerActivityScores: Record<string, number>;
+    diagnostics?: TrendingDiagnostics;
+    loaded: boolean;
+  };
+  const [live, setLive] = useState<LiveTrending>({
+    hotThisWeek: hotThisWeek ?? [],
+    playerTrendingMap: playerTrendingMap ?? {},
+    playerActivityScores: {},
+    diagnostics: trendingDiagnostics,
+    loaded: false,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/products/${productId}/trending`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setLive({
+          hotThisWeek: data.hotThisWeek ?? [],
+          playerTrendingMap: data.playerTrendingMap ?? {},
+          playerActivityScores: data.playerActivityScores ?? {},
+          diagnostics: data.diagnostics,
+          loaded: true,
+        });
+      })
+      .catch((e) => {
+        console.warn("[trending] client fetch failed:", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
+  // Blend PC priced scores with the live CH activity scores once
+  // the API has returned. Mirrors what the SSR path used to do
+  // server-side: 0.55 × PC + 0.45 × CH activity, with a fallback
+  // to 100% PC when CH is empty/unavailable.
+  const blendedGlobalScores: Record<string, number> = (() => {
+    const activity = live.playerActivityScores;
+    const hasActivity = Object.keys(activity).length > 0;
+    if (!hasActivity) return playerGlobalScores ?? {};
+    const out: Record<string, number> = {};
+    const allNames = new Set<string>([
+      ...Object.keys(playerGlobalScores ?? {}),
+      ...Object.keys(activity),
+    ]);
+    for (const name of allNames) {
+      const price = playerGlobalScores?.[name] ?? 0;
+      const a = activity[name] ?? 0;
+      const blended = price * 0.55 + a * 0.45;
+      if (blended > 0) out[name] = Math.max(1, Math.round(blended));
+    }
+    return out;
+  })();
+
   const showMarketBadge = cardsWithMarket > 0;
   // The Chase view shows when there's any market signal — either
   // in-set PriceCharting prices, OR cross-product player scores
@@ -243,12 +315,19 @@ export default function TeamPriceEditor({
           unavailable). The visible empty state is a deliberate
           diagnostic — without it, a quiet market and a broken data
           path looked identical to the user. */}
-      {hotThisWeek != null && (
-        <HotThisWeek
-          players={hotThisWeek}
-          diagnostics={trendingDiagnostics}
-        />
-      )}
+      {/* Hot This Week always renders — empty state shown until the
+          client-side fetch lands. live.loaded distinguishes "fetch in
+          progress" from "fetch returned empty" so users get a
+          loading state instead of a misleading "quiet market". */}
+      <HotThisWeek
+        players={live.hotThisWeek}
+        diagnostics={
+          live.loaded
+            ? live.diagnostics
+            : { apiKeyMissing: false, playersRequested: 0, batchesAttempted: 0, batchesSucceeded: 0, playersWithData: 0, lastError: null }
+        }
+        loading={!live.loaded}
+      />
 
       {scoreboard === "team" ? (
         <TeamBreakdownSheet
@@ -264,10 +343,10 @@ export default function TeamPriceEditor({
       ) : (
         <ChaseScoreboard
           players={chasePlayers}
-          playerGlobalScores={playerGlobalScores}
+          playerGlobalScores={blendedGlobalScores}
           playerInternationalMap={playerInternationalMap}
           playerProspectMap={playerProspectMap}
-          playerTrendingMap={playerTrendingMap}
+          playerTrendingMap={live.playerTrendingMap}
           playerTrends={playerTrends}
           trendDays={trendDays}
         />

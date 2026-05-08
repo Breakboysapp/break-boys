@@ -33,9 +33,14 @@ export type HotPlayer = {
 export default function HotThisWeek({
   players,
   diagnostics,
+  loading,
 }: {
   players: HotPlayer[];
   diagnostics?: TrendingDiagnostics;
+  /** True while the client-side fetch is in flight. Drives a
+   *  shimmer/loading state in the empty body instead of the
+   *  "Quiet market" placeholder. */
+  loading?: boolean;
 }) {
   // Collapsed by default — single-line header reads as a stripe;
   // user clicks the chevron to expand the rows. State lives on the
@@ -68,13 +73,15 @@ export default function HotThisWeek({
       </button>
       {!open ? null : players.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs text-slate-400">
-          {diagnostics?.apiKeyMissing
-            ? "Card Hedger integration disabled (no API key on this deploy)."
-            : diagnostics &&
-                diagnostics.batchesAttempted > 0 &&
-                diagnostics.batchesSucceeded === 0
-              ? `Card Hedger fetch failed on every batch (${diagnostics.batchesAttempted} attempted). Last error: ${diagnostics.lastError ?? "unknown"}`
-              : "No players spiking ≥5× this week. Quiet market for this product."}
+          {loading
+            ? "Loading hot players…"
+            : diagnostics?.apiKeyMissing
+              ? "Card Hedger integration disabled (no API key on this deploy)."
+              : diagnostics &&
+                  diagnostics.batchesAttempted > 0 &&
+                  diagnostics.batchesSucceeded === 0
+                ? `Card Hedger fetch failed on every batch (${diagnostics.batchesAttempted} attempted). Last error: ${diagnostics.lastError ?? "unknown"}`
+                : "No players spiking ≥5× this week. Quiet market for this product."}
           {diagnostics &&
             diagnostics.playersRequested > 0 && (
               <div className="mt-1 text-[10px] text-slate-300">
