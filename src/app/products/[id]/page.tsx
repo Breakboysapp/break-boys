@@ -12,7 +12,6 @@ import {
   buildPlayerInternationalMap,
   remapInternationalAnime,
 } from "@/lib/international-anime";
-import { computeTrendingMap } from "@/lib/cardhedger-trending";
 import { rollupChasePlayers } from "@/lib/chase-rollup";
 import { buildTeamExpandedRows } from "@/lib/team-expanded-rollup";
 import { CURRENT_USER_ID } from "@/lib/user";
@@ -333,71 +332,37 @@ export default async function ProductPage({
   // Other product lines (Topps Chrome, Panini Prizm, etc.) skip this
   // computation — they don't have a prospect concept the same way, so
   // the map stays empty and no (P) markers render.
-  // Per-player trending map from Card Hedger sales-stats. Players whose
-  // current-week sales count beats their prior 3-week average by ≥5×
-  // (with absolute sales floors so 0→2 jumps don't trip it) get a 🔥
-  // badge in the chase view. Wrapped with try/catch upstream — CH
-  // outage degrades to "no trending badges" rather than blocking the
-  // page render. Adds ~1-2s of latency on big checklists; acceptable
-  // for now, will move to a cron-cached lookup if it gets noticeable.
-  const trendingResult = await computeTrendingMap(playersInProduct);
-  const playerTrendingMap = trendingResult.map;
-  const trendingDiagnostics = trendingResult.diagnostics;
-
-  // CH activity score 0-100 — log-normalized last-30d dollar volume
-  // for each player, scaled against the top mover in this product's
-  // roster. Log compression because volume spans 4+ orders of
-  // magnitude (Ohtani $8M, mid-tier $30k, edge $200) — linear
-  // normalization would squash everyone except the top into single
-  // digits.
-  const playerActivityScores: Record<string, number> = {};
-  let maxActivityLog = 0;
-  for (const [, t] of Object.entries(playerTrendingMap)) {
-    if (t.last30dCents > 0) {
-      const v = Math.log(t.last30dCents + 1);
-      if (v > maxActivityLog) maxActivityLog = v;
+  // CH trending was previously fetched here in the SSR critical
+  // path, blocking page render until 354 player batches returned.
+  // Now deferred to a client-side fetch via /api/products/[id]/trending
+  // — the page renders immediately with PC-only Overall scores; the
+  // client blends in CH activity once the API returns. Hot This Week
+  // shows a "loading" state until the client fetch resolves.
+  const playerTrendingMap: Record<
+    string,
+    {
+      isTrending: boolean;
+      currentWeekSales: number;
+      spikeMultiple: number;
+      currentWeekCents: number;
+      last30dCents: number;
+      last30dSales: number;
     }
-  }
-  if (maxActivityLog > 0) {
-    for (const [name, t] of Object.entries(playerTrendingMap)) {
-      if (t.last30dCents <= 0) continue;
-      const v = Math.log(t.last30dCents + 1);
-      playerActivityScores[name] = Math.max(
-        1,
-        Math.round((v / maxActivityLog) * 100),
-      );
-    }
-  }
+  > = {};
+  const trendingDiagnostics = undefined;
 
-  // Combined Overall = 55% PC priced score + 45% CH activity score.
-  // Why 55/45 and not 50/50: PC has denser PSA 10 coverage on the
-  // mainline products we already index, so the price signal is more
-  // reliable per-card. But CH catches movers PC has nothing on
-  // (Patrick Copen at $385k weekly with $0 in PC) — those should
-  // still surface in the Top 20, just not dominate it.
-  //
-  // Weighted sum (not multiplier): a player with strong PC data and
-  // zero CH activity still ranks high (legacy chase cards still
-  // matter); a player with zero PC and strong CH activity surfaces
-  // at a respectable tier instead of being invisible.
-  //
-  // Both source scores are kept available for the tooltip breakdown
-  // so users can see why someone ranks where they do.
-  // Weights flip to 100% PC when CH activity data is fully
-  // unavailable (env not set, full outage, brand-new sport with no
-  // CH coverage). Otherwise the blended scores would all sit at 55%
-  // of the PC max — same ranking, but a misleading 0-55 range.
-  const chHasActivityData = Object.keys(playerActivityScores).length > 0;
-  const PRICE_WEIGHT = chHasActivityData ? 0.55 : 1;
-  const ACTIVITY_WEIGHT = chHasActivityData ? 0.45 : 0;
+  // Initial Overall = 100% PC priced score. Client-side merge in
+  // TeamPriceEditor applies the 0.55 / 0.45 PC + CH blend once the
+  // /api/products/[id]/trending response lands. This way the chase
+  // view renders immediately with reasonable scores; CH activity
+  // smoothly upgrades them after first paint.
   const playerGlobalScores: Record<string, number> = {};
-  const allPlayerNames = new Set<string>([
-    ...Object.keys(playerPriceScores),
-    ...Object.keys(playerActivityScores),
-  ]);
+  const allPlayerNames = new Set<string>([...Object.keys(playerPriceScores)]);
   for (const name of allPlayerNames) {
     const price = playerPriceScores[name] ?? 0;
-    const activity = playerActivityScores[name] ?? 0;
+    const activity = 0;
+    const PRICE_WEIGHT = 1;
+    const ACTIVITY_WEIGHT = 0;
     const blended = price * PRICE_WEIGHT + activity * ACTIVITY_WEIGHT;
     if (blended > 0) {
       playerGlobalScores[name] = Math.max(1, Math.round(blended));
