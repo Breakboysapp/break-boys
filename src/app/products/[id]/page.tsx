@@ -179,10 +179,13 @@ export default async function ProductPage({
     playerCrossBlend.set(name, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
   }
   const maxCrossBlend = Math.max(0, ...playerCrossBlend.values());
-  const playerGlobalScores: Record<string, number> = {};
+  // Pure-PC priced score 0-100. Kept as a separate map so we can
+  // surface "Price" and "Activity" sub-signals in the chase tooltip
+  // and so the legacy in-set fallback can use it when CH is offline.
+  const playerPriceScores: Record<string, number> = {};
   if (maxCrossBlend > 0) {
     for (const [name, blend] of playerCrossBlend) {
-      playerGlobalScores[name] = Math.max(
+      playerPriceScores[name] = Math.max(
         1,
         Math.round((blend / maxCrossBlend) * 100),
       );
@@ -338,6 +341,66 @@ export default async function ProductPage({
   const trendingResult = await computeTrendingMap(playersInProduct);
   const playerTrendingMap = trendingResult.map;
   const trendingDiagnostics = trendingResult.diagnostics;
+
+  // CH activity score 0-100 — log-normalized last-30d dollar volume
+  // for each player, scaled against the top mover in this product's
+  // roster. Log compression because volume spans 4+ orders of
+  // magnitude (Ohtani $8M, mid-tier $30k, edge $200) — linear
+  // normalization would squash everyone except the top into single
+  // digits.
+  const playerActivityScores: Record<string, number> = {};
+  let maxActivityLog = 0;
+  for (const [, t] of Object.entries(playerTrendingMap)) {
+    if (t.last30dCents > 0) {
+      const v = Math.log(t.last30dCents + 1);
+      if (v > maxActivityLog) maxActivityLog = v;
+    }
+  }
+  if (maxActivityLog > 0) {
+    for (const [name, t] of Object.entries(playerTrendingMap)) {
+      if (t.last30dCents <= 0) continue;
+      const v = Math.log(t.last30dCents + 1);
+      playerActivityScores[name] = Math.max(
+        1,
+        Math.round((v / maxActivityLog) * 100),
+      );
+    }
+  }
+
+  // Combined Overall = 55% PC priced score + 45% CH activity score.
+  // Why 55/45 and not 50/50: PC has denser PSA 10 coverage on the
+  // mainline products we already index, so the price signal is more
+  // reliable per-card. But CH catches movers PC has nothing on
+  // (Patrick Copen at $385k weekly with $0 in PC) — those should
+  // still surface in the Top 20, just not dominate it.
+  //
+  // Weighted sum (not multiplier): a player with strong PC data and
+  // zero CH activity still ranks high (legacy chase cards still
+  // matter); a player with zero PC and strong CH activity surfaces
+  // at a respectable tier instead of being invisible.
+  //
+  // Both source scores are kept available for the tooltip breakdown
+  // so users can see why someone ranks where they do.
+  // Weights flip to 100% PC when CH activity data is fully
+  // unavailable (env not set, full outage, brand-new sport with no
+  // CH coverage). Otherwise the blended scores would all sit at 55%
+  // of the PC max — same ranking, but a misleading 0-55 range.
+  const chHasActivityData = Object.keys(playerActivityScores).length > 0;
+  const PRICE_WEIGHT = chHasActivityData ? 0.55 : 1;
+  const ACTIVITY_WEIGHT = chHasActivityData ? 0.45 : 0;
+  const playerGlobalScores: Record<string, number> = {};
+  const allPlayerNames = new Set<string>([
+    ...Object.keys(playerPriceScores),
+    ...Object.keys(playerActivityScores),
+  ]);
+  for (const name of allPlayerNames) {
+    const price = playerPriceScores[name] ?? 0;
+    const activity = playerActivityScores[name] ?? 0;
+    const blended = price * PRICE_WEIGHT + activity * ACTIVITY_WEIGHT;
+    if (blended > 0) {
+      playerGlobalScores[name] = Math.max(1, Math.round(blended));
+    }
+  }
 
   const isBowmanProduct = /bowman/i.test(product.name);
   const playerProspectMap: Record<string, boolean> = {};
