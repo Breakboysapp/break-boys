@@ -335,7 +335,9 @@ export default async function ProductPage({
   // outage degrades to "no trending badges" rather than blocking the
   // page render. Adds ~1-2s of latency on big checklists; acceptable
   // for now, will move to a cron-cached lookup if it gets noticeable.
-  const playerTrendingMap = await computeTrendingMap(playersInProduct);
+  const trendingResult = await computeTrendingMap(playersInProduct);
+  const playerTrendingMap = trendingResult.map;
+  const trendingDiagnostics = trendingResult.diagnostics;
 
   const isBowmanProduct = /bowman/i.test(product.name);
   const playerProspectMap: Record<string, boolean> = {};
@@ -553,6 +555,7 @@ export default async function ProductPage({
                   popTotal: c.popTotal,
                 }))}
                 hotThisWeek={hotThisWeek}
+                trendingDiagnostics={trendingDiagnostics}
                 playerGlobalScores={playerGlobalScores}
                 playerInternationalMap={playerInternationalMap}
                 playerProspectMap={playerProspectMap}

@@ -39,19 +39,57 @@ const MIN_TOTAL_SALES = 5;
 /** Window size to look at: 4 weeks total = 1 current + 3 prior baseline. */
 const PERIODS = 4;
 
+export type TrendingDiagnostics = {
+  /** True when CARD_HEDGER_API was missing — the integration is
+   *  effectively disabled, no fetches were attempted. */
+  apiKeyMissing: boolean;
+  /** Total unique non-empty players we asked CH about. */
+  playersRequested: number;
+  /** Total batches dispatched to CH. */
+  batchesAttempted: number;
+  /** Batches where CH returned 200. The remainder failed (non-200,
+   *  network, parse). When all batches fail this matches CH outage
+   *  vs. genuine zero-spike data. */
+  batchesSucceeded: number;
+  /** Player rows returned across all successful batches — the
+   *  denominator for the trending check. */
+  playersWithData: number;
+  /** Last error message, if any. Surfaced verbatim in the diagnostic
+   *  tooltip so we can debug Vercel deploys without function-log
+   *  access. */
+  lastError: string | null;
+};
+
+export type TrendingResult = {
+  map: Record<string, TrendingInfo>;
+  diagnostics: TrendingDiagnostics;
+};
+
 export async function computeTrendingMap(
   players: string[],
-): Promise<Record<string, TrendingInfo>> {
+): Promise<TrendingResult> {
   const out: Record<string, TrendingInfo> = {};
-  if (!process.env.CARD_HEDGER_API || players.length === 0) return out;
+  const diag: TrendingDiagnostics = {
+    apiKeyMissing: !process.env.CARD_HEDGER_API,
+    playersRequested: 0,
+    batchesAttempted: 0,
+    batchesSucceeded: 0,
+    playersWithData: 0,
+    lastError: null,
+  };
+  if (!process.env.CARD_HEDGER_API || players.length === 0) {
+    return { map: out, diagnostics: diag };
+  }
 
   // Dedupe + filter falsy. CH happily echoes back any string but we
   // don't want to bloat the request with empty / "—" values.
   const dedup = [...new Set(players.filter(Boolean))];
+  diag.playersRequested = dedup.length;
 
   // Batch through CH; one failed batch doesn't kill the rest.
   for (let i = 0; i < dedup.length; i += BATCH_SIZE) {
     const batch = dedup.slice(i, i + BATCH_SIZE);
+    diag.batchesAttempted++;
     try {
       const stats = await getPlayerSalesStats({
         players: batch,
@@ -59,7 +97,9 @@ export async function computeTrendingMap(
         periods: PERIODS,
         includeCurrent: true,
       });
+      diag.batchesSucceeded++;
       for (const r of stats) {
+        diag.playersWithData++;
         const counts = r.buckets.map((b) => b.count);
         const currentBucket = r.buckets[r.buckets.length - 1];
         out[r.player] = {
@@ -68,14 +108,16 @@ export async function computeTrendingMap(
         };
       }
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      diag.lastError = msg;
       console.warn(
         `[trending] CH batch ${i}-${i + BATCH_SIZE} failed:`,
-        e instanceof Error ? e.message : e,
+        msg,
       );
       // Continue — partial trending data is better than none.
     }
   }
-  return out;
+  return { map: out, diagnostics: diag };
 }
 
 function classifyTrending(

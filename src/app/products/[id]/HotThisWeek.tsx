@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { formatUsd } from "@/lib/money";
 import { playerSlug } from "@/lib/player-slug";
+import type { TrendingDiagnostics } from "@/lib/cardhedger-trending";
 
 /**
  * "Hot This Week" — surfaces players whose current-week sales activity
@@ -28,7 +29,13 @@ export type HotPlayer = {
   isProspect?: boolean;
 };
 
-export default function HotThisWeek({ players }: { players: HotPlayer[] }) {
+export default function HotThisWeek({
+  players,
+  diagnostics,
+}: {
+  players: HotPlayer[];
+  diagnostics?: TrendingDiagnostics;
+}) {
   // Always render the section header — even with zero movers, the
   // empty-state copy confirms to the user that the data path is
   // alive (vs the previous behavior of silently hiding when the
@@ -52,7 +59,21 @@ export default function HotThisWeek({ players }: { players: HotPlayer[] }) {
       </div>
       {players.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs text-slate-400">
-          No players spiking ≥5× this week. Quiet market for this product.
+          {diagnostics?.apiKeyMissing
+            ? "Card Hedger integration disabled (no API key on this deploy)."
+            : diagnostics &&
+                diagnostics.batchesAttempted > 0 &&
+                diagnostics.batchesSucceeded === 0
+              ? `Card Hedger fetch failed on every batch (${diagnostics.batchesAttempted} attempted). Last error: ${diagnostics.lastError ?? "unknown"}`
+              : "No players spiking ≥5× this week. Quiet market for this product."}
+          {diagnostics && (
+            <div className="mt-1 text-[10px] text-slate-300">
+              {diagnostics.playersWithData}/
+              {diagnostics.playersRequested} players returned data ·{" "}
+              {diagnostics.batchesSucceeded}/
+              {diagnostics.batchesAttempted} batches succeeded
+            </div>
+          )}
         </div>
       ) : (
         <ul className="divide-y divide-slate-100">

@@ -9,6 +9,7 @@ import {
   formatRelativeTime,
 } from "@/lib/money";
 import HotThisWeek, { type HotPlayer } from "./HotThisWeek";
+import type { TrendingDiagnostics } from "@/lib/cardhedger-trending";
 import TeamBreakdownSheet from "./TeamBreakdownSheet";
 import ChaseScoreboard, { type ChaseCard } from "./ChaseScoreboard";
 
@@ -58,6 +59,7 @@ export default function TeamPriceEditor({
   cards,
   chaseCards,
   hotThisWeek,
+  trendingDiagnostics,
   playerGlobalScores,
   playerInternationalMap,
   playerProspectMap,
@@ -121,6 +123,11 @@ export default function TeamPriceEditor({
    *  Hot This Week section above the scoreboard. Built server-side
    *  in page.tsx so the client component stays presentational. */
   hotThisWeek?: HotPlayer[];
+  /** Diagnostic counters from the CH trending fetch — surfaced as a
+   *  small subtitle in the Hot This Week section so we can tell
+   *  apart "quiet market" from "API key missing" / "all batches
+   *  failed" without function-log access. */
+  trendingDiagnostics?: TrendingDiagnostics;
   /** Number of teams in this product that received a market rank
    *  (i.e. have at least one priced player). Drives the "1 of N"
    *  suffix on the Market Rank column so the user sees their team's
@@ -227,7 +234,12 @@ export default function TeamPriceEditor({
           unavailable). The visible empty state is a deliberate
           diagnostic — without it, a quiet market and a broken data
           path looked identical to the user. */}
-      {hotThisWeek != null && <HotThisWeek players={hotThisWeek} />}
+      {hotThisWeek != null && (
+        <HotThisWeek
+          players={hotThisWeek}
+          diagnostics={trendingDiagnostics}
+        />
+      )}
 
       {scoreboard === "team" ? (
         <TeamBreakdownSheet
