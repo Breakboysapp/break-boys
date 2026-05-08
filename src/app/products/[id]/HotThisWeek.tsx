@@ -66,12 +66,17 @@ export default function HotThisWeek({
                 diagnostics.batchesSucceeded === 0
               ? `Card Hedger fetch failed on every batch (${diagnostics.batchesAttempted} attempted). Last error: ${diagnostics.lastError ?? "unknown"}`
               : "No players spiking ≥5× this week. Quiet market for this product."}
-          {diagnostics && (
-            <div className="mt-1 text-[10px] text-slate-300">
-              {diagnostics.playersWithData}/
+          {diagnostics ? (
+            <div className="mt-2 inline-block rounded-md bg-amber-50 px-3 py-1 text-[12px] font-bold text-amber-700">
+              DIAG: {diagnostics.playersWithData}/
               {diagnostics.playersRequested} players returned data ·{" "}
               {diagnostics.batchesSucceeded}/
               {diagnostics.batchesAttempted} batches succeeded
+              {diagnostics.lastError ? ` · err: ${diagnostics.lastError.slice(0, 80)}` : ""}
+            </div>
+          ) : (
+            <div className="mt-2 inline-block rounded-md bg-red-50 px-3 py-1 text-[12px] font-bold text-red-700">
+              DIAG: diagnostics object is UNDEFINED — wiring problem
             </div>
           )}
         </div>
