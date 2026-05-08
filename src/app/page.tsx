@@ -82,21 +82,32 @@ export default async function HomePage({
   }
 
   // Tab split semantics:
-  //   Active       = cards > 0 (real, browsable checklists)
-  //   Coming Soon  = cards = 0 AND release is in the future (or unknown)
+  //   Active       = cards > 0 AND not explicitly marked announced
+  //   Coming Soon  = releaseStatus = "announced" OR (cards = 0 AND
+  //                  release is in the future / unknown)
   //
-  // Released-but-empty products (cards = 0 AND release in the past) are a
-  // data gap — Beckett hasn't posted the xlsx yet, our seed scripts
+  // The releaseStatus override matters for products like 2026 Bowman
+  // where the checklist is loaded ahead of release (so we can build
+  // the chase view in advance) but we still want it surfaced as
+  // upcoming on the homepage. Without the override, 1,200 loaded cards
+  // would push it into the Active tab even though the product hasn't
+  // dropped yet.
+  //
+  // Released-but-empty products (cards = 0 AND release in the past) are
+  // a data gap — Beckett hasn't posted the xlsx yet, our seed scripts
   // haven't run, etc. They're invisible to public users since there's
   // nothing actionable on those tiles, but the backend audit script
   // (scripts/audit-coming-soon.ts) still lists them so we know what
   // needs backfilling.
   const now = new Date();
-  const activeProducts = all.filter((p) => p._count.cards > 0);
+  const activeProducts = all.filter(
+    (p) => p._count.cards > 0 && p.releaseStatus !== "announced",
+  );
   const comingSoonProducts = all.filter(
     (p) =>
-      p._count.cards === 0 &&
-      (p.releaseDate == null || p.releaseDate > now),
+      p.releaseStatus === "announced" ||
+      (p._count.cards === 0 &&
+        (p.releaseDate == null || p.releaseDate > now)),
   );
   const tabPool = tab === "coming-soon" ? comingSoonProducts : activeProducts;
 

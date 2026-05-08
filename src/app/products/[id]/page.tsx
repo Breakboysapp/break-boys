@@ -369,7 +369,17 @@ export default async function ProductPage({
     (c) => c.marketValueCents != null && c.marketValueCents > 0,
   ).length;
   const hasTeams = product.teamPrices.length > 0;
-  const isComingSoon = product._count.cards === 0;
+  // Two flavors of "not yet released":
+  //   - hasNoChecklist: empty product, replace scoreboard with the
+  //     placeholder banner.
+  //   - isComingSoon (badge only): product is announced but checklist
+  //     has been pre-loaded so we can build the chase view ahead of
+  //     release. Show the "Coming Soon" pill in the hero and surface
+  //     it in the homepage Coming Soon tab, but keep the scoreboard
+  //     accessible — that's the whole point of pre-loading.
+  const hasNoChecklist = product._count.cards === 0;
+  const isComingSoon =
+    hasNoChecklist || product.releaseStatus === "announced";
 
   return (
     <div className="space-y-10">
@@ -442,7 +452,7 @@ export default async function ProductPage({
         />
       )}
 
-      {isComingSoon ? (
+      {hasNoChecklist ? (
         <ComingSoon productId={product.id} />
       ) : (
         <>
@@ -457,8 +467,11 @@ export default async function ProductPage({
             uploaded products with real teams render Team Scoreboard
             fully and don't show Chase (no PriceCharting data on them
             yet — fixed when we merge the importer match logic next).
+            Announced products with a pre-loaded checklist (cards > 0)
+            still render the scoreboard — only `hasNoChecklist` flips us
+            to the placeholder.
           */}
-          {!isComingSoon && (
+          {!hasNoChecklist && (
             <section className="space-y-3">
               <TeamPriceEditor
                 productId={product.id}
