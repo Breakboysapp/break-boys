@@ -372,14 +372,19 @@ export default async function ProductPage({
   // Two flavors of "not yet released":
   //   - hasNoChecklist: empty product, replace scoreboard with the
   //     placeholder banner.
-  //   - isComingSoon (badge only): product is announced but checklist
-  //     has been pre-loaded so we can build the chase view ahead of
-  //     release. Show the "Coming Soon" pill in the hero and surface
-  //     it in the homepage Coming Soon tab, but keep the scoreboard
-  //     accessible — that's the whole point of pre-loading.
+  //   - isComingSoon (badge only): release date is null or future AND
+  //     either the status is announced (pre-loaded checklist case) or
+  //     the product has no cards yet. Mirrors the homepage filter so
+  //     the hero pill matches the tab a user just clicked through
+  //     from. Status alone isn't enough — most existing products
+  //     default to "announced" but are released; the date guard
+  //     prevents every page from showing the Coming Soon pill.
   const hasNoChecklist = product._count.cards === 0;
+  const releaseInFutureOrUnknown =
+    product.releaseDate == null || product.releaseDate > new Date();
   const isComingSoon =
-    hasNoChecklist || product.releaseStatus === "announced";
+    hasNoChecklist ||
+    (product.releaseStatus === "announced" && releaseInFutureOrUnknown);
 
   return (
     <div className="space-y-10">
