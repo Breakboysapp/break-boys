@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { formatUsd } from "@/lib/money";
 import { playerSlug } from "@/lib/player-slug";
 import type { TrendingDiagnostics } from "@/lib/cardhedger-trending";
@@ -36,28 +37,36 @@ export default function HotThisWeek({
   players: HotPlayer[];
   diagnostics?: TrendingDiagnostics;
 }) {
-  // Always render the section header — even with zero movers, the
-  // empty-state copy confirms to the user that the data path is
-  // alive (vs the previous behavior of silently hiding when the
-  // CH integration was returning nothing). When the section truly
-  // shouldn't render at all (no CH key, etc.), the parent passes
-  // `undefined` and short-circuits before reaching here.
+  // Collapsed by default — single-line header reads as a stripe;
+  // user clicks the chevron to expand the rows. State lives on the
+  // client so collapse persists during a session of clicks elsewhere
+  // on the page.
+  const [open, setOpen] = useState(false);
+
+  const headerLabel = "🔥 SEE WHO'S ON FIRE";
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="flex items-baseline justify-between border-b border-slate-200 bg-bone px-4 py-2.5">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
-            🔥 Hot This Week
-          </div>
-          <div className="text-sm font-extrabold leading-tight tracking-tight-3 sm:text-base">
-            Spiking sales — last 7 days
-          </div>
-        </div>
-        <div className="text-[10px] text-slate-500 sm:text-[11px]">
-          Source: Card Hedger
-        </div>
-      </div>
-      {players.length === 0 ? (
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`flex w-full items-center justify-between bg-bone px-4 py-2.5 text-left transition hover:bg-slate-100 ${
+          open ? "border-b border-slate-200" : ""
+        }`}
+      >
+        <span className="text-sm font-extrabold uppercase tracking-tight-2 text-accent sm:text-base">
+          {headerLabel}
+        </span>
+        <span
+          aria-hidden
+          className={`text-xs text-slate-500 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        >
+          ▾
+        </span>
+      </button>
+      {!open ? null : players.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs text-slate-400">
           {diagnostics?.apiKeyMissing
             ? "Card Hedger integration disabled (no API key on this deploy)."
