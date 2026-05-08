@@ -535,7 +535,7 @@ export default function ChaseScoreboard({
                   )}
                   <td
                     className="px-3 py-2 text-right tabular-nums"
-                    title={`Overall: ${p.marketScore}/100. Cross-product player index — sourced from this player's priced cards across every product in the DB.`}
+                    title={`Overall: ${p.marketScore}/100. Blended player index — 55% cross-product priced cards (PriceCharting) + 45% recent sales activity (Card Hedger).`}
                   >
                     {p.marketScore > 0 ? (
                       <>
@@ -685,6 +685,14 @@ function MarketScoreExplainer({ onClose }: { onClose: () => void }) {
             relative to them.
           </p>
           <ul className="space-y-1.5 text-[13px]">
+            <li>
+              <strong>Two signals, blended.</strong> The score
+              combines the player&apos;s priced-card market (top
+              graded sales + median across their parallels) with
+              their actual sales activity over the last 30 days.
+              Stale prices alone don&apos;t make the cut — recent
+              dollar volume earns its own weight in the rank.
+            </li>
             <li>
               <strong>Chase signal weighs heaviest.</strong> The
               trophy card isn&apos;t something you&apos;ll personally

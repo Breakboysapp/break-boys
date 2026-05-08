@@ -27,6 +27,17 @@ export type TrendingInfo = {
   /** Current week's dollar volume in cents — for ranking the Hot
    *  This Week section by money flow, not just sales count. */
   currentWeekCents: number;
+  /** Sum of all 4 weekly buckets (~30 days) — total dollar volume
+   *  this player moved on Card Hedger's tracked marketplaces. Drives
+   *  the "market activity" weight blended into the chase view's
+   *  Overall score so a player with high recent volume ranks higher
+   *  than one with comparable PSA 10 prices but no recent sales
+   *  motion. */
+  last30dCents: number;
+  /** Sum of sales counts across all 4 weekly buckets. Pop-volume
+   *  signal — collectors only sell what's worth selling, so high
+   *  count is itself a market-validity vote. */
+  last30dSales: number;
 };
 
 // Card Hedger's sales-stats-by-player caps the players[] array at 25.
@@ -102,9 +113,19 @@ export async function computeTrendingMap(
         diag.playersWithData++;
         const counts = r.buckets.map((b) => b.count);
         const currentBucket = r.buckets[r.buckets.length - 1];
+        const last30dCents = r.buckets.reduce(
+          (s, b) => s + b.totalCents,
+          0,
+        );
+        const last30dSales = r.buckets.reduce(
+          (s, b) => s + b.count,
+          0,
+        );
         out[r.player] = {
           ...classifyTrending(counts),
           currentWeekCents: currentBucket?.totalCents ?? 0,
+          last30dCents,
+          last30dSales,
         };
       }
     } catch (e) {
@@ -120,9 +141,15 @@ export async function computeTrendingMap(
   return { map: out, diagnostics: diag };
 }
 
-function classifyTrending(
-  weeklyCounts: number[],
-): Omit<TrendingInfo, "currentWeekCents"> {
+/** Classifier returns just the spike-detection fields. The caller
+ *  layers in the volume fields (currentWeekCents, last30dCents,
+ *  last30dSales) since those don't depend on the threshold logic. */
+type TrendingClassification = Pick<
+  TrendingInfo,
+  "isTrending" | "currentWeekSales" | "spikeMultiple"
+>;
+
+function classifyTrending(weeklyCounts: number[]): TrendingClassification {
   if (weeklyCounts.length < PERIODS) {
     return { isTrending: false, currentWeekSales: 0, spikeMultiple: 0 };
   }
