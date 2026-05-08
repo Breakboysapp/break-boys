@@ -78,6 +78,7 @@ export type TrendingResult = {
 
 export async function computeTrendingMap(
   players: string[],
+  options?: { deadlineMs?: number; perBatchMs?: number },
 ): Promise<TrendingResult> {
   const out: Record<string, TrendingInfo> = {};
   const diag: TrendingDiagnostics = {
@@ -108,8 +109,8 @@ export async function computeTrendingMap(
   // dispatch hard (15-parallel = all timeouts; 5-parallel = ~12s
   // for 10/15). 3 stays within their tolerance without serializing
   // the whole fetch.
-  const PER_BATCH_MS = 2500;
-  const DEADLINE_MS = 5000;
+  const PER_BATCH_MS = options?.perBatchMs ?? 2500;
+  const DEADLINE_MS = options?.deadlineMs ?? 5000;
   const CONCURRENCY = 3;
 
   const batches: string[][] = [];

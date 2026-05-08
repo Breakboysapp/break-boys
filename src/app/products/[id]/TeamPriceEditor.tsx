@@ -8,7 +8,7 @@ import {
   dollarsToCents,
   formatRelativeTime,
 } from "@/lib/money";
-import HotThisWeek, { type HotPlayer } from "./HotThisWeek";
+import { type HotPlayer } from "./HotThisWeek";
 import type { TrendingDiagnostics } from "@/lib/cardhedger-trending";
 import type { PlayerRollup } from "@/lib/chase-rollup";
 import TeamBreakdownSheet from "./TeamBreakdownSheet";
@@ -315,19 +315,12 @@ export default function TeamPriceEditor({
           unavailable). The visible empty state is a deliberate
           diagnostic — without it, a quiet market and a broken data
           path looked identical to the user. */}
-      {/* Hot This Week always renders — empty state shown until the
-          client-side fetch lands. live.loaded distinguishes "fetch in
-          progress" from "fetch returned empty" so users get a
-          loading state instead of a misleading "quiet market". */}
-      <HotThisWeek
-        players={live.hotThisWeek}
-        diagnostics={
-          live.loaded
-            ? live.diagnostics
-            : { apiKeyMissing: false, playersRequested: 0, batchesAttempted: 0, batchesSucceeded: 0, playersWithData: 0, lastError: null }
-        }
-        loading={!live.loaded}
-      />
+      {/* "Hot This Week" used to render here as an inline section.
+          It moved to the global /hot/<sport> page so the product
+          surface stays focused on the scorecard. The blended Overall
+          score is still upgraded with CH activity once the client
+          fetch returns; only the visible Hot This Week list lives
+          on the dedicated page now. */}
 
       {scoreboard === "team" ? (
         <TeamBreakdownSheet
