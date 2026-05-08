@@ -11,6 +11,7 @@ import {
   buildPlayerInternationalMap,
   remapInternationalAnime,
 } from "@/lib/international-anime";
+import { computeTrendingMap } from "@/lib/cardhedger-trending";
 import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
@@ -328,6 +329,15 @@ export default async function ProductPage({
   // Other product lines (Topps Chrome, Panini Prizm, etc.) skip this
   // computation — they don't have a prospect concept the same way, so
   // the map stays empty and no (P) markers render.
+  // Per-player trending map from Card Hedger sales-stats. Players whose
+  // current-week sales count beats their prior 3-week average by ≥5×
+  // (with absolute sales floors so 0→2 jumps don't trip it) get a 🔥
+  // badge in the chase view. Wrapped with try/catch upstream — CH
+  // outage degrades to "no trending badges" rather than blocking the
+  // page render. Adds ~1-2s of latency on big checklists; acceptable
+  // for now, will move to a cron-cached lookup if it gets noticeable.
+  const playerTrendingMap = await computeTrendingMap(playersInProduct);
+
   const isBowmanProduct = /bowman/i.test(product.name);
   const playerProspectMap: Record<string, boolean> = {};
   if (isBowmanProduct) {
@@ -491,6 +501,7 @@ export default async function ProductPage({
                 playerInternationalMap={playerInternationalMap}
                 playerProspectMap={playerProspectMap}
                 playerRookieMap={playerRookieMap}
+                playerTrendingMap={playerTrendingMap}
                 playerTrends={playerTrends}
                 totalRankedTeams={totalRankedTeams}
                 trendDays={trendMaxDays}
