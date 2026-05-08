@@ -10,8 +10,9 @@ import {
 } from "@/lib/money";
 import HotThisWeek, { type HotPlayer } from "./HotThisWeek";
 import type { TrendingDiagnostics } from "@/lib/cardhedger-trending";
+import type { PlayerRollup } from "@/lib/chase-rollup";
 import TeamBreakdownSheet from "./TeamBreakdownSheet";
-import ChaseScoreboard, { type ChaseCard } from "./ChaseScoreboard";
+import ChaseScoreboard from "./ChaseScoreboard";
 
 type AlgorithmBucket = {
   label: string;
@@ -56,8 +57,9 @@ export default function TeamPriceEditor({
   algorithm,
   teamBreakdownRows,
   playerBreakdownRows,
-  cards,
-  chaseCards,
+  chasePlayers,
+  hasInSetPriceData,
+  teamExpandedRows,
   hotThisWeek,
   trendingDiagnostics,
   playerGlobalScores,
@@ -79,11 +81,18 @@ export default function TeamPriceEditor({
   algorithm: AlgorithmBucket[];
   teamBreakdownRows: BreakdownRow[];
   playerBreakdownRows: BreakdownRow[];
-  cards: CardLite[];
-  /** Per-card PriceCharting data for the Chase scoreboard. Sourced from
-   *  the PC importer; cards without PC data have null prices/pop and are
-   *  filtered out by the Chase rollup. */
-  chaseCards: ChaseCard[];
+  /** Pre-rolled chase players (server-side in src/lib/chase-rollup.ts).
+   *  Replaces the old per-card chaseCards[] array — saved ~1MB of
+   *  HTML on 2026 Bowman, key fix for iOS Safari load failures. */
+  chasePlayers: PlayerRollup[];
+  /** Whether any card in the product has in-set PSA 10 priced data.
+   *  Computed server-side so we don't ship raw cards just to check.
+   *  Drives the visibility of the Team / Chase scoreboard toggle. */
+  hasInSetPriceData: boolean;
+  /** Pre-computed player sub-rows per team (from
+   *  src/lib/team-expanded-rollup.ts). Lets us drop the raw
+   *  cards[] array entirely. */
+  teamExpandedRows: import("@/lib/team-expanded-rollup").TeamExpandedRows;
   /** Cross-product player market score (0-100) — Card-Ladder-style
    *  player index, sourced from each player's priced cards across
    *  EVERY product, not just this one. Lets new products with no
@@ -157,7 +166,7 @@ export default function TeamPriceEditor({
   // for veterans + recurring prospects, so the Chase view is useful
   // immediately and gets MORE useful as in-set prices fill in.
   const hasChaseData =
-    chaseCards.some((c) => c.psa10Cents != null && c.psa10Cents > 0) ||
+    hasInSetPriceData ||
     (playerGlobalScores != null &&
       Object.values(playerGlobalScores).some((s) => s > 0));
 
@@ -246,14 +255,15 @@ export default function TeamPriceEditor({
           buckets={algorithm}
           teamRows={teamBreakdownRows}
           playerRows={playerBreakdownRows}
-          cards={cards}
+          cards={[]}
+          teamExpandedRows={teamExpandedRows}
           playerProspectMap={playerProspectMap}
           playerRookieMap={playerRookieMap}
           totalRankedTeams={totalRankedTeams}
         />
       ) : (
         <ChaseScoreboard
-          cards={chaseCards}
+          players={chasePlayers}
           playerGlobalScores={playerGlobalScores}
           playerInternationalMap={playerInternationalMap}
           playerProspectMap={playerProspectMap}
