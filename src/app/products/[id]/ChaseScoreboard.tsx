@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUsd } from "@/lib/money";
+import { playerSlug } from "@/lib/player-slug";
 import { isAutoCard } from "@/lib/scoring";
 
 /**
@@ -397,7 +399,12 @@ export default function ChaseScoreboard({
                     </span>
                   </td>
                   <td className="px-3 py-2 font-semibold tracking-tight-2">
-                    {p.playerName}
+                    <Link
+                      href={`/players/${playerSlug(p.playerName)}`}
+                      className="hover:text-accent"
+                    >
+                      {p.playerName}
+                    </Link>
                     {p.isRookie && (
                       <span
                         className="ml-1 text-[10px] font-bold text-accent"
