@@ -3,7 +3,6 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { sportsFromPath } from "@/lib/product-path";
 import { remapInternationalAnime } from "@/lib/international-anime";
-import { isRookieVariation } from "@/lib/scoring";
 import { playerSlug } from "@/lib/player-slug";
 import { formatUsd } from "@/lib/money";
 
@@ -65,10 +64,11 @@ export default async function HotSportPage({
     if (!inner) return null;
     return [...inner.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   };
-  const playerRookieMap: Record<string, boolean> = {};
-  for (const c of remapped) {
-    if (isRookieVariation(c.variation)) playerRookieMap[c.playerName] = true;
-  }
+  // No rookie map at the sport-aggregate level. (R) is set-specific
+  // (e.g. Yamamoto's 2024 Topps cards are correctly marked RC, but
+  // by 2026 he's a sophomore — flagging him as a "rookie" on the
+  // year-spanning hot list would be misleading). The product-page
+  // chase view still surfaces (R) where it's accurate.
 
   // Read pre-computed trending data straight from PlayerTrendingSnapshot.
   // The refresh-trending cron writes here daily so the page render is
@@ -93,7 +93,6 @@ export default async function HotSportPage({
     .map((s) => ({
       playerName: s.playerName,
       team: primaryTeamFor(s.playerName),
-      isRookie: playerRookieMap[s.playerName] ?? false,
       isTrending: s.isTrending,
       currentWeekSales: s.currentWeekSales,
       currentWeekCents: s.currentWeekCents,
@@ -200,14 +199,6 @@ export default async function HotSportPage({
                         }`}
                       >
                         🔥
-                      </span>
-                    )}
-                    {r.isRookie && (
-                      <span
-                        className="ml-1 text-[10px] font-bold text-accent"
-                        title="Rookie card in at least one tracked set"
-                      >
-                        (R)
                       </span>
                     )}
                   </Link>
