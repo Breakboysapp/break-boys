@@ -172,7 +172,7 @@ export default async function PlayerPage({
               </div>
             </div>
             <div className="text-[10px] text-slate-500 sm:text-[11px]">
-              Source: Card Hedger · last 12 weeks
+              Last 12 weeks
             </div>
           </div>
           <div className="mt-4">

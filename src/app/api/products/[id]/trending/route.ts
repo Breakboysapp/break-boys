@@ -1,17 +1,13 @@
 /**
- * Per-product trending data — Hot This Week + per-player CH activity.
+ * Per-product trending data — Hot This Week + per-player activity.
  *
- * Pulled OFF the SSR path because Card Hedger's sales-stats-by-player
- * endpoint takes 1–5s on big checklists (354 players for 2026 Bowman),
- * which was pushing total page render past iOS Safari's tolerance on
- * cellular. The product page now renders fast without trending; the
- * client fetches this route on mount and fills in Hot This Week +
- * blends the activity score into Overall in place.
+ * Reads from PlayerTrendingSnapshot (populated by the daily
+ * refresh-trending cron). No external API calls in the request
+ * path; this route resolves in tens of ms.
  */
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { computeTrendingMap } from "@/lib/cardhedger-trending";
 import {
   remapInternationalAnime,
 } from "@/lib/international-anime";
@@ -29,6 +25,7 @@ export async function GET(
     select: {
       id: true,
       name: true,
+      sport: true,
       cards: {
         select: {
           team: true,
@@ -54,7 +51,42 @@ export async function GET(
   );
   const players = [...new Set(remapped.map((c) => c.playerName))];
 
-  const { map, diagnostics } = await computeTrendingMap(players);
+  // Read pre-computed trending snapshots for this player set + sport.
+  const snapshots = await prisma.playerTrendingSnapshot.findMany({
+    where: {
+      sport: product.sport,
+      playerName: { in: players },
+    },
+  });
+  const map: Record<
+    string,
+    {
+      isTrending: boolean;
+      currentWeekSales: number;
+      spikeMultiple: number;
+      currentWeekCents: number;
+      last30dCents: number;
+      last30dSales: number;
+    }
+  > = {};
+  for (const s of snapshots) {
+    map[s.playerName] = {
+      isTrending: s.isTrending,
+      currentWeekSales: s.currentWeekSales,
+      currentWeekCents: s.currentWeekCents,
+      spikeMultiple: s.spikeMultiple ?? Infinity,
+      last30dCents: s.last30dCents,
+      last30dSales: s.last30dSales,
+    };
+  }
+  const diagnostics = {
+    apiKeyMissing: false,
+    playersRequested: players.length,
+    batchesAttempted: 1,
+    batchesSucceeded: 1,
+    playersWithData: snapshots.length,
+    lastError: null,
+  };
 
   // Derive Hot This Week list (top 8 by current-week dollar volume).
   // Mirrors the build in page.tsx so the UI stays consistent.

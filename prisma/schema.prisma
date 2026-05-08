@@ -86,9 +86,9 @@ model Card {
   cardHedgerMatchedAt  DateTime?
   cardHedgerConfidence Float?
   cardHedgerReasoning  String?
-  product          Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
-  userCards        UserCard[]
-  priceSnapshots   CardPriceSnapshot[]
+  product              Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userCards            UserCard[]
+  priceSnapshots       CardPriceSnapshot[]
 
   @@index([productId, team])
   @@index([productId, psa10Cents])
@@ -115,6 +115,39 @@ model CardPriceSnapshot {
   card          Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@index([cardId, capturedAt])
+}
+
+// Cached per-(player, sport) trending snapshot. Populated by the
+// daily refresh-trending cron — sweeps every priced player in every
+// sport through the third-party sales tracker, classifies the spike,
+// upserts here. /hot/[sport] and the product chase view's blended
+// Overall score read from this table for an instantaneous response;
+// the cron is the only place that hits the external API.
+//
+// One row per (playerName, sport) — same player can have entries
+// across sports if they show up in multiple categories (rare). Sport
+// is on the row directly so "give me the top 100 hot MLB movers" is
+// a single indexed query.
+//
+// spikeMultiple is nullable because Infinity (current-week activity
+// with zero prior-3-week baseline) doesn't serialize cleanly through
+// JSON; null in this column means "first activity in the window".
+model PlayerTrendingSnapshot {
+  id               String   @id @default(cuid())
+  playerName       String
+  sport            String
+  isTrending       Boolean  @default(false)
+  currentWeekSales Int      @default(0)
+  currentWeekCents Int      @default(0)
+  last30dSales     Int      @default(0)
+  last30dCents     Int      @default(0)
+  spikeMultiple    Float?
+  capturedAt       DateTime @default(now())
+
+  @@unique([playerName, sport])
+  @@index([sport, last30dCents])
+  @@index([sport, isTrending])
+  @@index([capturedAt])
 }
 
 model TeamPrice {

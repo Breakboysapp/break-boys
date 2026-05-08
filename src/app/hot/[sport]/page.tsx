@@ -2,18 +2,11 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { sportsFromPath } from "@/lib/product-path";
-import { computeTrendingMap } from "@/lib/cardhedger-trending";
 import { remapInternationalAnime } from "@/lib/international-anime";
-import { isRookieVariation } from "@/lib/scoring";
 import { playerSlug } from "@/lib/player-slug";
 import { formatUsd } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
-// Cache the page render at the edge for 5 min, with SWR for 30 min.
-// Trending data is sport-wide aggregate — same answer for everyone
-// on a given visit window — so this hits CH at most ~12 times/hour
-// per sport regardless of traffic.
-export const revalidate = 300;
 
 const SPORT_LABEL: Record<string, string> = {
   MLB: "Baseball",
@@ -31,9 +24,11 @@ export default async function HotSportPage({
   const sportCandidates = sportsFromPath(sportSeg);
   if (sportCandidates.length === 0) notFound();
 
-  // Pull every distinct player across every product in the sport.
-  // That's the universe we'll rank — Card Hedger gives us weekly
-  // volume + spike multiples for each.
+  // Pull only the distinct player → team mapping for this sport.
+  // We don't need every card here — we read trending data from
+  // PlayerTrendingSnapshot (populated by the daily refresh-trending
+  // cron). The cards lookup is just to display each player's team
+  // + rookie tag alongside the trending row.
   const cards = await prisma.card.findMany({
     where: { product: { sport: { in: sportCandidates } } },
     select: {
@@ -41,8 +36,6 @@ export default async function HotSportPage({
       team: true,
       variation: true,
       cardNumber: true,
-      psa10Cents: true,
-      ungradedCents: true,
     },
   });
   if (cards.length === 0) notFound();
@@ -51,42 +44,6 @@ export default async function HotSportPage({
   // Cal Raleigh / Aaron Judge / Ohtani aren't double-counted on
   // their national-team affiliations.
   const remapped = remapInternationalAnime(cards);
-
-  // Narrow the universe before hitting CH. A full MLB sweep is
-  // ~2,000+ distinct players; CH's 25-per-batch endpoint can't
-  // finish that on a request render. Restrict to players who have
-  // at least ONE priced card anywhere OR who appear in 3+ products
-  // (the second filter catches active prospects whose cards haven't
-  // been graded yet, like 2026 Bowman draftees). Keeps the sweep
-  // bounded ~200-500 players per sport.
-  const cardCountByPlayer = new Map<string, number>();
-  const pricedSet = new Set<string>();
-  const productSetByPlayer = new Map<string, Set<string>>();
-  for (const c of cards) {
-    cardCountByPlayer.set(
-      c.playerName,
-      (cardCountByPlayer.get(c.playerName) ?? 0) + 1,
-    );
-    if (
-      (c.psa10Cents != null && c.psa10Cents > 0) ||
-      (c.ungradedCents != null && c.ungradedCents > 0)
-    ) {
-      pricedSet.add(c.playerName);
-    }
-  }
-  // Also resolve which products each player appears in (one query
-  // would be cleaner, but we already have cards in memory so derive
-  // from there: we don't have productId on the select, so use card
-  // count as a proxy — players in 5+ cards almost certainly span
-  // multiple products in our sets).
-  // Tightest filter that still surfaces meaningful results: anyone
-  // priced anywhere in our DB. CH won't have 30-day volume on
-  // unpriced players anyway, and the rate limit + 5s deadline mean
-  // we can't sweep wider than ~600 players per request without
-  // some not finishing.
-  const playersInSport = [
-    ...new Set(remapped.map((c) => c.playerName)),
-  ].filter((name) => pricedSet.has(name));
 
   // Most-frequent team per player — same logic as product page,
   // applied across every product in the sport. Captures the
@@ -107,37 +64,44 @@ export default async function HotSportPage({
     if (!inner) return null;
     return [...inner.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   };
-  const playerRookieMap: Record<string, boolean> = {};
-  for (const c of remapped) {
-    if (isRookieVariation(c.variation)) playerRookieMap[c.playerName] = true;
-  }
+  // No rookie map at the sport-aggregate level. (R) is set-specific
+  // (e.g. Yamamoto's 2024 Topps cards are correctly marked RC, but
+  // by 2026 he's a sophomore — flagging him as a "rookie" on the
+  // year-spanning hot list would be misleading). The product-page
+  // chase view still surfaces (R) where it's accurate.
 
-  // Use a longer deadline on the dedicated /hot page than we use
-  // on product pages — this is the page where the trending list IS
-  // the primary content, so users tolerate a few extra seconds on
-  // a cold first load. Page-level revalidate=300 means subsequent
-  // visitors hit cache and never feel this latency.
-  const { map: trending, diagnostics } = await computeTrendingMap(
-    playersInSport,
-    { deadlineMs: 15000, perBatchMs: 4000 },
+  // Read pre-computed trending data straight from PlayerTrendingSnapshot.
+  // The refresh-trending cron writes here daily so the page render is
+  // a single indexed Postgres query — no external API in the request
+  // path, no rate-limit risk, no cold-load wait.
+  const snapshots = await prisma.playerTrendingSnapshot.findMany({
+    where: { sport: { in: sportCandidates } },
+    orderBy: { last30dCents: "desc" },
+    take: 200,
+  });
+  const lastCapturedAt = snapshots.reduce<Date | null>(
+    (latest, s) =>
+      latest == null || s.capturedAt > latest ? s.capturedAt : latest,
+    null,
   );
 
-  // Rank by 30-day dollar volume, not just spike multiple. A
-  // big-name veteran with consistent volume reads as more
-  // meaningful than a single-week 0→3 jump on a no-name. Floor
-  // at last30dCents > 0 so we don't display dead names.
-  const ranked = Object.entries(trending)
-    .filter(([, t]) => t.last30dCents > 0)
-    .map(([name, t]) => ({
-      playerName: name,
-      team: primaryTeamFor(name),
-      isRookie: playerRookieMap[name] ?? false,
-      isTrending: t.isTrending,
-      currentWeekSales: t.currentWeekSales,
-      currentWeekCents: t.currentWeekCents,
-      last30dCents: t.last30dCents,
-      last30dSales: t.last30dSales,
-      spikeMultiple: t.spikeMultiple,
+  // Rank by 30-day dollar volume — already sorted by Postgres above.
+  // Filter to players with non-zero volume + decorate with display
+  // bits sourced from the cards table.
+  const ranked = snapshots
+    .filter((s) => s.last30dCents > 0)
+    .map((s) => ({
+      playerName: s.playerName,
+      team: primaryTeamFor(s.playerName),
+      isTrending: s.isTrending,
+      currentWeekSales: s.currentWeekSales,
+      currentWeekCents: s.currentWeekCents,
+      last30dCents: s.last30dCents,
+      last30dSales: s.last30dSales,
+      // Snapshot stores Infinity as null; restore for the UI's
+      // tooltip math. Frontend renders "new" instead of a number
+      // when not finite.
+      spikeMultiple: s.spikeMultiple ?? Infinity,
     }))
     .sort((a, b) => b.currentWeekCents - a.currentWeekCents);
 
@@ -179,14 +143,25 @@ export default async function HotSportPage({
             </strong>{" "}
             volume (30d)
           </span>
+          {lastCapturedAt && (
+            <span className="text-slate-400">
+              · refreshed{" "}
+              {new Date(lastCapturedAt).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </span>
+          )}
         </div>
       </div>
 
       {ranked.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-xs text-slate-500">
-          {diagnostics.apiKeyMissing
-            ? "Card Hedger integration disabled (no API key on this deploy)."
-            : `No movers detected. CH returned ${diagnostics.playersWithData}/${diagnostics.playersRequested} player rows.`}
+          {snapshots.length === 0
+            ? "Trending data hasn't been refreshed for this sport yet. The daily refresh cron populates this table; check back after the next run."
+            : "No movers with non-zero 30-day volume."}
         </div>
       ) : (
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -224,14 +199,6 @@ export default async function HotSportPage({
                         }`}
                       >
                         🔥
-                      </span>
-                    )}
-                    {r.isRookie && (
-                      <span
-                        className="ml-1 text-[10px] font-bold text-accent"
-                        title="Rookie card in at least one tracked set"
-                      >
-                        (R)
                       </span>
                     )}
                   </Link>
