@@ -97,45 +97,87 @@ export async function computeTrendingMap(
   const dedup = [...new Set(players.filter(Boolean))];
   diag.playersRequested = dedup.length;
 
-  // Batch through CH; one failed batch doesn't kill the rest.
+  // Hard guarantee that no single product page can hang on CH calls.
+  // Strategy: each batch gets 2.5s, the whole fetch phase gets a 5s
+  // wall-clock deadline. Any batches that miss the deadline simply
+  // contribute null to the result map. iOS Safari aborts page
+  // navigation around 8-10s, so 5s is comfortably inside that
+  // budget while leaving room for PC queries + render.
+  //
+  // Concurrency = 3. Empirically CH's rate limiter punishes parallel
+  // dispatch hard (15-parallel = all timeouts; 5-parallel = ~12s
+  // for 10/15). 3 stays within their tolerance without serializing
+  // the whole fetch.
+  const PER_BATCH_MS = 2500;
+  const DEADLINE_MS = 5000;
+  const CONCURRENCY = 3;
+
+  const batches: string[][] = [];
   for (let i = 0; i < dedup.length; i += BATCH_SIZE) {
-    const batch = dedup.slice(i, i + BATCH_SIZE);
-    diag.batchesAttempted++;
-    try {
-      const stats = await getPlayerSalesStats({
-        players: batch,
-        interval: "week",
-        periods: PERIODS,
-        includeCurrent: true,
-      });
-      diag.batchesSucceeded++;
-      for (const r of stats) {
-        diag.playersWithData++;
-        const counts = r.buckets.map((b) => b.count);
-        const currentBucket = r.buckets[r.buckets.length - 1];
-        const last30dCents = r.buckets.reduce(
-          (s, b) => s + b.totalCents,
-          0,
-        );
-        const last30dSales = r.buckets.reduce(
-          (s, b) => s + b.count,
-          0,
-        );
-        out[r.player] = {
-          ...classifyTrending(counts),
-          currentWeekCents: currentBucket?.totalCents ?? 0,
-          last30dCents,
-          last30dSales,
-        };
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      diag.lastError = msg;
-      console.warn(
-        `[trending] CH batch ${i}-${i + BATCH_SIZE} failed:`,
-        msg,
-      );
-      // Continue — partial trending data is better than none.
+    batches.push(dedup.slice(i, i + BATCH_SIZE));
+  }
+  diag.batchesAttempted = batches.length;
+
+  const deadline = Date.now() + DEADLINE_MS;
+
+  const timed = <T,>(p: Promise<T>): Promise<T | null> =>
+    Promise.race([
+      p,
+      new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), PER_BATCH_MS),
+      ),
+    ]);
+
+  const batchResults: Array<Awaited<
+    ReturnType<typeof getPlayerSalesStats>
+  > | null> = new Array(batches.length).fill(null);
+
+  for (let wave = 0; wave < batches.length; wave += CONCURRENCY) {
+    if (Date.now() >= deadline) {
+      diag.lastError = `deadline (${DEADLINE_MS}ms) hit after wave ${wave / CONCURRENCY}`;
+      break;
+    }
+    const slice = batches.slice(wave, wave + CONCURRENCY);
+    const sliceResults = await Promise.all(
+      slice.map(async (batch, k) => {
+        const idx = wave + k;
+        try {
+          return await timed(
+            getPlayerSalesStats({
+              players: batch,
+              interval: "week",
+              periods: PERIODS,
+              includeCurrent: true,
+            }),
+          );
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          diag.lastError = msg;
+          console.warn(`[trending] CH batch ${idx} failed:`, msg);
+          return null;
+        }
+      }),
+    );
+    sliceResults.forEach((r, k) => {
+      batchResults[wave + k] = r;
+    });
+  }
+
+  for (const stats of batchResults) {
+    if (!stats) continue;
+    diag.batchesSucceeded++;
+    for (const r of stats) {
+      diag.playersWithData++;
+      const counts = r.buckets.map((b) => b.count);
+      const currentBucket = r.buckets[r.buckets.length - 1];
+      const last30dCents = r.buckets.reduce((s, b) => s + b.totalCents, 0);
+      const last30dSales = r.buckets.reduce((s, b) => s + b.count, 0);
+      out[r.player] = {
+        ...classifyTrending(counts),
+        currentWeekCents: currentBucket?.totalCents ?? 0,
+        last30dCents,
+        last30dSales,
+      };
     }
   }
   return { map: out, diagnostics: diag };
