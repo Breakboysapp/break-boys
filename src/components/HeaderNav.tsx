@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 
 const LINKS: Array<{ href: string; label: string }> = [
   { href: "/", label: "Products" },
+  { href: "/hot", label: "🔥 Hot" },
   { href: "/favorites", label: "Favorites" },
   { href: "/mixers", label: "Mixers" },
   { href: "/calendar", label: "Calendar" },
