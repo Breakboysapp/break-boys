@@ -220,14 +220,14 @@ export default function TeamPriceEditor({
 
       {/* Hot This Week — players whose current-week sales spiked vs
           the prior 3-week baseline. Sits above the scoreboard so it's
-          the first market signal a user sees. Hidden when no players
-          in this product are trending; CH outage also degrades to
-          hidden. Surfaces non-priced movers (Patrick Copen-types)
-          that the chase view's PSA-10-ranked top 50 would never
-          show. */}
-      {hotThisWeek && hotThisWeek.length > 0 && (
-        <HotThisWeek players={hotThisWeek} />
-      )}
+          the first market signal a user sees. Renders an explicit
+          "no movers this week" placeholder when the data path
+          succeeded but no player crossed the threshold; only fully
+          hidden when `hotThisWeek` is undefined (CH integration
+          unavailable). The visible empty state is a deliberate
+          diagnostic — without it, a quiet market and a broken data
+          path looked identical to the user. */}
+      {hotThisWeek != null && <HotThisWeek players={hotThisWeek} />}
 
       {scoreboard === "team" ? (
         <TeamBreakdownSheet
