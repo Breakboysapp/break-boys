@@ -603,6 +603,8 @@ export async function getPriceEstimate(
 export type PlayerSalesBucket = {
   /** ISO date string — start of the bucket. */
   bucketStart: string;
+  /** ISO date string — end of the bucket (inclusive). */
+  bucketEnd: string;
   count: number;
   totalCents: number;
   averageCents: number;
@@ -649,7 +651,11 @@ export async function getPlayerSalesStats(args: {
     results?: Array<{
       player?: string;
       buckets?: Array<{
-        bucket_start?: string;
+        // CH labels these `start` and `end` (NOT bucket_start / bucket_end).
+        // The OpenAPI spec used `bucket_start`, but the live API returns
+        // `start`. Tested against JJ Wetherholt sales-stats response.
+        start?: string;
+        end?: string;
         count?: number;
         total_amount?: number;
         average_sale?: number;
@@ -662,7 +668,8 @@ export async function getPlayerSalesStats(args: {
     player: r.player ?? "",
     interval,
     buckets: (r.buckets ?? []).map((b) => ({
-      bucketStart: b.bucket_start ?? "",
+      bucketStart: b.start ?? "",
+      bucketEnd: b.end ?? "",
       count: b.count ?? 0,
       totalCents: toCents(b.total_amount) ?? 0,
       averageCents: toCents(b.average_sale) ?? 0,

@@ -13,6 +13,7 @@ import { formatUsd } from "@/lib/money";
  */
 export type Bucket = {
   bucketStart: string;
+  bucketEnd: string;
   count: number;
   totalCents: number;
   averageCents: number;
@@ -41,12 +42,22 @@ export default function PlayerSalesChart({ buckets }: { buckets: Bucket[] }) {
   const barW = Math.max(8, barSlot - 6);
 
   // Format week start ISO → "May 5". Concise label that stays readable
-  // when 12 ticks have to share a 720px chart.
+  // when 12 ticks have to share a 720px chart. Parse YYYY-MM-DD as a
+  // local date to avoid the off-by-one shift you get from `new
+  // Date("2026-02-16")` interpreting it as UTC midnight then converting
+  // to a westward-shifted local date.
   const fmtTick = (iso: string) => {
     if (!iso) return "";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso.slice(5, 10);
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) {
+      const [, y, mo, d] = m;
+      const local = new Date(Number(y), Number(mo) - 1, Number(d));
+      return local.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      });
+    }
+    return iso.slice(5, 10);
   };
 
   return (
@@ -89,8 +100,9 @@ export default function PlayerSalesChart({ buckets }: { buckets: Bucket[] }) {
                 strokeDasharray={b.partial ? "3 2" : undefined}
               >
                 <title>
-                  {fmtTick(b.bucketStart)} · {b.count} sales ·{" "}
-                  {formatUsd(b.totalCents)}
+                  {fmtTick(b.bucketStart)}
+                  {b.bucketEnd ? `–${fmtTick(b.bucketEnd)}` : ""} · {b.count}{" "}
+                  sales · {formatUsd(b.totalCents)}
                   {b.partial ? " (in progress)" : ""}
                 </title>
               </rect>
