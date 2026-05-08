@@ -82,21 +82,35 @@ export default async function HomePage({
   }
 
   // Tab split semantics:
-  //   Active       = cards > 0 (real, browsable checklists)
-  //   Coming Soon  = cards = 0 AND release is in the future (or unknown)
+  //   Coming Soon  = releaseDate is null or future, AND (status =
+  //                  "announced" OR cards = 0). Captures both:
+  //                    • Pre-loaded checklists ahead of release
+  //                      (2026 Bowman: cards=1211, status=announced,
+  //                      releaseDate=null → goes to Coming Soon).
+  //                    • Empty products with a future release date.
+  //   Active       = cards > 0 AND NOT in Coming Soon.
   //
-  // Released-but-empty products (cards = 0 AND release in the past) are a
-  // data gap — Beckett hasn't posted the xlsx yet, our seed scripts
+  // Why not gate on status alone: the schema default for releaseStatus
+  // is "announced", so most of our existing released products still
+  // carry that value. Without the date guard, ~80 already-released
+  // products would all flip into Coming Soon. Date is the source of
+  // truth; status is the hint that lets us surface pre-loaded upcoming
+  // products that would otherwise get caught in Active by the
+  // cards > 0 check.
+  //
+  // Released-but-empty products (cards = 0 AND release in the past) are
+  // a data gap — Beckett hasn't posted the xlsx yet, our seed scripts
   // haven't run, etc. They're invisible to public users since there's
   // nothing actionable on those tiles, but the backend audit script
   // (scripts/audit-coming-soon.ts) still lists them so we know what
   // needs backfilling.
   const now = new Date();
-  const activeProducts = all.filter((p) => p._count.cards > 0);
-  const comingSoonProducts = all.filter(
-    (p) =>
-      p._count.cards === 0 &&
-      (p.releaseDate == null || p.releaseDate > now),
+  const isUpcoming = (p: (typeof all)[number]) =>
+    (p.releaseDate == null || p.releaseDate > now) &&
+    (p.releaseStatus === "announced" || p._count.cards === 0);
+  const comingSoonProducts = all.filter(isUpcoming);
+  const activeProducts = all.filter(
+    (p) => p._count.cards > 0 && !isUpcoming(p),
   );
   const tabPool = tab === "coming-soon" ? comingSoonProducts : activeProducts;
 

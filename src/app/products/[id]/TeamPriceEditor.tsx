@@ -8,6 +8,8 @@ import {
   dollarsToCents,
   formatRelativeTime,
 } from "@/lib/money";
+import HotThisWeek, { type HotPlayer } from "./HotThisWeek";
+import type { TrendingDiagnostics } from "@/lib/cardhedger-trending";
 import TeamBreakdownSheet from "./TeamBreakdownSheet";
 import ChaseScoreboard, { type ChaseCard } from "./ChaseScoreboard";
 
@@ -56,10 +58,13 @@ export default function TeamPriceEditor({
   playerBreakdownRows,
   cards,
   chaseCards,
+  hotThisWeek,
+  trendingDiagnostics,
   playerGlobalScores,
   playerInternationalMap,
   playerProspectMap,
   playerRookieMap,
+  playerTrendingMap,
   playerTrends,
   totalRankedTeams,
   trendDays,
@@ -101,6 +106,28 @@ export default function TeamPriceEditor({
    *  Beckett rookie tag. Powers the (R) marker on the player-view
    *  top-level rows in the team breakdown sheet. */
   playerRookieMap?: Record<string, boolean>;
+  /** Per-player trending classification (🔥 spike detection from CH
+   *  sales-stats). When .isTrending is true, the chase view renders
+   *  a 🔥 badge next to the player name. */
+  playerTrendingMap?: Record<
+    string,
+    {
+      isTrending: boolean;
+      currentWeekSales: number;
+      spikeMultiple: number;
+      currentWeekCents: number;
+    }
+  >;
+  /** Pre-ranked list of trending players for this product, capped at
+   *  8 entries, sorted by current-week dollar volume. Powers the
+   *  Hot This Week section above the scoreboard. Built server-side
+   *  in page.tsx so the client component stays presentational. */
+  hotThisWeek?: HotPlayer[];
+  /** Diagnostic counters from the CH trending fetch — surfaced as a
+   *  small subtitle in the Hot This Week section so we can tell
+   *  apart "quiet market" from "API key missing" / "all batches
+   *  failed" without function-log access. */
+  trendingDiagnostics?: TrendingDiagnostics;
   /** Number of teams in this product that received a market rank
    *  (i.e. have at least one priced player). Drives the "1 of N"
    *  suffix on the Market Rank column so the user sees their team's
@@ -198,6 +225,22 @@ export default function TeamPriceEditor({
         </div>
       )}
 
+      {/* Hot This Week — players whose current-week sales spiked vs
+          the prior 3-week baseline. Sits above the scoreboard so it's
+          the first market signal a user sees. Renders an explicit
+          "no movers this week" placeholder when the data path
+          succeeded but no player crossed the threshold; only fully
+          hidden when `hotThisWeek` is undefined (CH integration
+          unavailable). The visible empty state is a deliberate
+          diagnostic — without it, a quiet market and a broken data
+          path looked identical to the user. */}
+      {hotThisWeek != null && (
+        <HotThisWeek
+          players={hotThisWeek}
+          diagnostics={trendingDiagnostics}
+        />
+      )}
+
       {scoreboard === "team" ? (
         <TeamBreakdownSheet
           buckets={algorithm}
@@ -214,6 +257,7 @@ export default function TeamPriceEditor({
           playerGlobalScores={playerGlobalScores}
           playerInternationalMap={playerInternationalMap}
           playerProspectMap={playerProspectMap}
+          playerTrendingMap={playerTrendingMap}
           playerTrends={playerTrends}
           trendDays={trendDays}
         />

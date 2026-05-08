@@ -5,12 +5,14 @@ import {
   PRICING_BLEND_ALPHA,
   computeBreakdown,
   isProspectCard,
+  isRookieVariation,
   summarizeAlgorithmFor,
 } from "@/lib/scoring";
 import {
   buildPlayerInternationalMap,
   remapInternationalAnime,
 } from "@/lib/international-anime";
+import { computeTrendingMap } from "@/lib/cardhedger-trending";
 import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
@@ -177,10 +179,13 @@ export default async function ProductPage({
     playerCrossBlend.set(name, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
   }
   const maxCrossBlend = Math.max(0, ...playerCrossBlend.values());
-  const playerGlobalScores: Record<string, number> = {};
+  // Pure-PC priced score 0-100. Kept as a separate map so we can
+  // surface "Price" and "Activity" sub-signals in the chase tooltip
+  // and so the legacy in-set fallback can use it when CH is offline.
+  const playerPriceScores: Record<string, number> = {};
   if (maxCrossBlend > 0) {
     for (const [name, blend] of playerCrossBlend) {
-      playerGlobalScores[name] = Math.max(
+      playerPriceScores[name] = Math.max(
         1,
         Math.round((blend / maxCrossBlend) * 100),
       );
@@ -305,15 +310,13 @@ export default async function ProductPage({
   }
 
   // Per-player "is rookie?" map. A player is a rookie in this product
-  // if ANY of their cards carries the Beckett rookie tag — variation
-  // ending in "· RC" or containing the word "rookie". Used to render
-  // the (R) marker on the player-view top-level rows of the team
-  // breakdown; the team-expanded sub-rows derive isRookie themselves
-  // from the underlying cards, but the top-level player rows only
-  // carry aggregated metadata.
+  // if ANY of their cards carries the Beckett rookie tag. Detection
+  // logic in isRookieVariation — explicitly excludes mixed-class
+  // subsets ("Rookie and Veteran") so veterans on those subsets
+  // (e.g. Nick Kurtz in 2026 Bowman) don't get tagged as rookies.
   const playerRookieMap: Record<string, boolean> = {};
   for (const c of cards) {
-    if (c.variation && /·\s*RC$|\brc\b|rookie/i.test(c.variation)) {
+    if (isRookieVariation(c.variation)) {
       playerRookieMap[c.playerName] = true;
     }
   }
@@ -328,6 +331,77 @@ export default async function ProductPage({
   // Other product lines (Topps Chrome, Panini Prizm, etc.) skip this
   // computation — they don't have a prospect concept the same way, so
   // the map stays empty and no (P) markers render.
+  // Per-player trending map from Card Hedger sales-stats. Players whose
+  // current-week sales count beats their prior 3-week average by ≥5×
+  // (with absolute sales floors so 0→2 jumps don't trip it) get a 🔥
+  // badge in the chase view. Wrapped with try/catch upstream — CH
+  // outage degrades to "no trending badges" rather than blocking the
+  // page render. Adds ~1-2s of latency on big checklists; acceptable
+  // for now, will move to a cron-cached lookup if it gets noticeable.
+  const trendingResult = await computeTrendingMap(playersInProduct);
+  const playerTrendingMap = trendingResult.map;
+  const trendingDiagnostics = trendingResult.diagnostics;
+
+  // CH activity score 0-100 — log-normalized last-30d dollar volume
+  // for each player, scaled against the top mover in this product's
+  // roster. Log compression because volume spans 4+ orders of
+  // magnitude (Ohtani $8M, mid-tier $30k, edge $200) — linear
+  // normalization would squash everyone except the top into single
+  // digits.
+  const playerActivityScores: Record<string, number> = {};
+  let maxActivityLog = 0;
+  for (const [, t] of Object.entries(playerTrendingMap)) {
+    if (t.last30dCents > 0) {
+      const v = Math.log(t.last30dCents + 1);
+      if (v > maxActivityLog) maxActivityLog = v;
+    }
+  }
+  if (maxActivityLog > 0) {
+    for (const [name, t] of Object.entries(playerTrendingMap)) {
+      if (t.last30dCents <= 0) continue;
+      const v = Math.log(t.last30dCents + 1);
+      playerActivityScores[name] = Math.max(
+        1,
+        Math.round((v / maxActivityLog) * 100),
+      );
+    }
+  }
+
+  // Combined Overall = 55% PC priced score + 45% CH activity score.
+  // Why 55/45 and not 50/50: PC has denser PSA 10 coverage on the
+  // mainline products we already index, so the price signal is more
+  // reliable per-card. But CH catches movers PC has nothing on
+  // (Patrick Copen at $385k weekly with $0 in PC) — those should
+  // still surface in the Top 20, just not dominate it.
+  //
+  // Weighted sum (not multiplier): a player with strong PC data and
+  // zero CH activity still ranks high (legacy chase cards still
+  // matter); a player with zero PC and strong CH activity surfaces
+  // at a respectable tier instead of being invisible.
+  //
+  // Both source scores are kept available for the tooltip breakdown
+  // so users can see why someone ranks where they do.
+  // Weights flip to 100% PC when CH activity data is fully
+  // unavailable (env not set, full outage, brand-new sport with no
+  // CH coverage). Otherwise the blended scores would all sit at 55%
+  // of the PC max — same ranking, but a misleading 0-55 range.
+  const chHasActivityData = Object.keys(playerActivityScores).length > 0;
+  const PRICE_WEIGHT = chHasActivityData ? 0.55 : 1;
+  const ACTIVITY_WEIGHT = chHasActivityData ? 0.45 : 0;
+  const playerGlobalScores: Record<string, number> = {};
+  const allPlayerNames = new Set<string>([
+    ...Object.keys(playerPriceScores),
+    ...Object.keys(playerActivityScores),
+  ]);
+  for (const name of allPlayerNames) {
+    const price = playerPriceScores[name] ?? 0;
+    const activity = playerActivityScores[name] ?? 0;
+    const blended = price * PRICE_WEIGHT + activity * ACTIVITY_WEIGHT;
+    if (blended > 0) {
+      playerGlobalScores[name] = Math.max(1, Math.round(blended));
+    }
+  }
+
   const isBowmanProduct = /bowman/i.test(product.name);
   const playerProspectMap: Record<string, boolean> = {};
   if (isBowmanProduct) {
@@ -351,6 +425,44 @@ export default async function ProductPage({
       }
     }
   }
+
+  // Build the "Hot This Week" feed from the trending map, ranked by
+  // current-week dollar volume so the meaningful spikes lead. Caps
+  // at 8 entries — anything beyond that is more noise than signal at
+  // the product-page level. Most-frequent team across the player's
+  // cards in this product surfaces alongside the name. Rookie /
+  // prospect markers reuse the maps we just built above.
+  const teamCountByPlayer = new Map<string, Map<string, number>>();
+  for (const c of cards) {
+    if (!c.team || c.team === "—") continue;
+    let inner = teamCountByPlayer.get(c.playerName);
+    if (!inner) {
+      inner = new Map();
+      teamCountByPlayer.set(c.playerName, inner);
+    }
+    inner.set(c.team, (inner.get(c.team) ?? 0) + 1);
+  }
+  const primaryTeamFor = (name: string): string | null => {
+    const inner = teamCountByPlayer.get(name);
+    if (!inner) return null;
+    return (
+      [...inner.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+    );
+  };
+  const hotThisWeek = Object.entries(playerTrendingMap)
+    .filter(([, t]) => t.isTrending)
+    .map(([name, t]) => ({
+      playerName: name,
+      team: primaryTeamFor(name),
+      currentWeekSales: t.currentWeekSales,
+      currentWeekCents: t.currentWeekCents,
+      spikeMultiple: t.spikeMultiple,
+      isRookie: playerRookieMap[name] ?? false,
+      isProspect: playerProspectMap[name] ?? false,
+    }))
+    .sort((a, b) => b.currentWeekCents - a.currentWeekCents)
+    .slice(0, 8);
+
   const totalContentScore = teamBreakdown.rows.reduce(
     (s, r) => s + r.totalScore,
     0,
@@ -359,7 +471,22 @@ export default async function ProductPage({
     (c) => c.marketValueCents != null && c.marketValueCents > 0,
   ).length;
   const hasTeams = product.teamPrices.length > 0;
-  const isComingSoon = product._count.cards === 0;
+  // Two flavors of "not yet released":
+  //   - hasNoChecklist: empty product, replace scoreboard with the
+  //     placeholder banner.
+  //   - isComingSoon (badge only): release date is null or future AND
+  //     either the status is announced (pre-loaded checklist case) or
+  //     the product has no cards yet. Mirrors the homepage filter so
+  //     the hero pill matches the tab a user just clicked through
+  //     from. Status alone isn't enough — most existing products
+  //     default to "announced" but are released; the date guard
+  //     prevents every page from showing the Coming Soon pill.
+  const hasNoChecklist = product._count.cards === 0;
+  const releaseInFutureOrUnknown =
+    product.releaseDate == null || product.releaseDate > new Date();
+  const isComingSoon =
+    hasNoChecklist ||
+    (product.releaseStatus === "announced" && releaseInFutureOrUnknown);
 
   return (
     <div className="space-y-10">
@@ -432,7 +559,7 @@ export default async function ProductPage({
         />
       )}
 
-      {isComingSoon ? (
+      {hasNoChecklist ? (
         <ComingSoon productId={product.id} />
       ) : (
         <>
@@ -447,8 +574,11 @@ export default async function ProductPage({
             uploaded products with real teams render Team Scoreboard
             fully and don't show Chase (no PriceCharting data on them
             yet — fixed when we merge the importer match logic next).
+            Announced products with a pre-loaded checklist (cards > 0)
+            still render the scoreboard — only `hasNoChecklist` flips us
+            to the placeholder.
           */}
-          {!isComingSoon && (
+          {!hasNoChecklist && (
             <section className="space-y-3">
               <TeamPriceEditor
                 productId={product.id}
@@ -471,12 +601,12 @@ export default async function ProductPage({
                 chaseCards={cards.map((c) => ({
                   playerName: c.playerName,
                   team: c.team,
-                  // Rookie detection: Beckett xlsx tags rookies with
-                  // "· RC" suffix in the variation; some sheets use
-                  // the literal word "Rookie". Pattern catches both.
-                  isRookie:
-                    c.variation != null &&
-                    /·\s*RC$|\brc\b|rookie/i.test(c.variation),
+                  // Rookie detection via shared helper — handles
+                  // Beckett's "· RC" suffix, standalone "RC", and the
+                  // word "rookie", while excluding mixed-class
+                  // "Rookie and Veteran" subsets to avoid false
+                  // positives on veterans who happen to land there.
+                  isRookie: isRookieVariation(c.variation),
                   cardNumber: c.cardNumber,
                   variation: c.variation,
                   ungradedCents: c.ungradedCents,
@@ -487,10 +617,13 @@ export default async function ProductPage({
                   popG10: c.popG10,
                   popTotal: c.popTotal,
                 }))}
+                hotThisWeek={hotThisWeek}
+                trendingDiagnostics={trendingDiagnostics}
                 playerGlobalScores={playerGlobalScores}
                 playerInternationalMap={playerInternationalMap}
                 playerProspectMap={playerProspectMap}
                 playerRookieMap={playerRookieMap}
+                playerTrendingMap={playerTrendingMap}
                 playerTrends={playerTrends}
                 totalRankedTeams={totalRankedTeams}
                 trendDays={trendMaxDays}

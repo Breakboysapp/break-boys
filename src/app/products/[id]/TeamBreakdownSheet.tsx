@@ -1,8 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { classifyCard, splitVariationLabel } from "@/lib/scoring";
+import {
+  classifyCard,
+  isRookieVariation,
+  splitVariationLabel,
+} from "@/lib/scoring";
 import { formatUsd } from "@/lib/money";
+import { playerSlug } from "@/lib/player-slug";
 import { getTeamAbbreviation } from "@/lib/team-abbreviations";
 
 type AlgorithmBucket = {
@@ -355,7 +361,12 @@ export default function TeamBreakdownSheet({
                         <SubjectName name={r.name} />
                       ) : (
                         <>
-                          {r.name}
+                          <Link
+                            href={`/players/${playerSlug(r.name)}`}
+                            className="hover:text-accent"
+                          >
+                            {r.name}
+                          </Link>
                           {playerRookieMap?.[r.name] && (
                             <span
                               className="ml-1 text-[10px] font-bold text-accent"
@@ -486,7 +497,12 @@ export default function TeamBreakdownSheet({
                           title={p.playerName}
                         >
                           <span className="mr-1.5 text-slate-300">└</span>
-                          {p.playerName}
+                          <Link
+                            href={`/players/${playerSlug(p.playerName)}`}
+                            className="hover:text-accent"
+                          >
+                            {p.playerName}
+                          </Link>
                           {p.isRookie && (
                             <span
                               className="ml-1 text-[10px] font-bold text-accent"
@@ -643,15 +659,6 @@ export default function TeamBreakdownSheet({
  * caller can render player rows as real <tr> children of the parent
  * table and reuse the exact same column widths.
  */
-// True when the variation carries the Beckett rookie tag — variation
-// ending in "· RC" or containing the word "rookie". Mirrors the
-// detection used by ChaseScoreboard so the (R) marker reads
-// consistently across both views.
-const ROOKIE_RE = /·\s*RC$|\brc\b|rookie/i;
-function isRookieVariation(v: string | null | undefined): boolean {
-  return v != null && ROOKIE_RE.test(v);
-}
-
 function computePlayerRows(
   cards: CardLite[],
   buckets: AlgorithmBucket[],

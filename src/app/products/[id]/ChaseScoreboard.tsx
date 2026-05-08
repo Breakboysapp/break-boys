@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUsd } from "@/lib/money";
+import { playerSlug } from "@/lib/player-slug";
 import { isAutoCard } from "@/lib/scoring";
 
 /**
@@ -206,6 +208,7 @@ export default function ChaseScoreboard({
   playerGlobalScores,
   playerInternationalMap,
   playerProspectMap,
+  playerTrendingMap,
   playerTrends,
   trendDays,
 }: {
@@ -219,6 +222,13 @@ export default function ChaseScoreboard({
    *  marker after the player name. Empty / undefined for non-Bowman
    *  products. */
   playerProspectMap?: Record<string, boolean>;
+  /** Per-player trending classification from CH sales-stats. When
+   *  .isTrending is true, the row gets a 🔥 badge after the name with
+   *  a tooltip showing the spike multiple + current-week sales count. */
+  playerTrendingMap?: Record<
+    string,
+    { isTrending: boolean; currentWeekSales: number; spikeMultiple: number }
+  >;
   playerTrends?: Record<string, number | null>;
   trendDays?: number;
 }) {
@@ -397,7 +407,12 @@ export default function ChaseScoreboard({
                     </span>
                   </td>
                   <td className="px-3 py-2 font-semibold tracking-tight-2">
-                    {p.playerName}
+                    <Link
+                      href={`/players/${playerSlug(p.playerName)}`}
+                      className="hover:text-accent"
+                    >
+                      {p.playerName}
+                    </Link>
                     {p.isRookie && (
                       <span
                         className="ml-1 text-[10px] font-bold text-accent"
@@ -412,6 +427,24 @@ export default function ChaseScoreboard({
                         title="Prospect — minor leaguer or draft pick"
                       >
                         (P)
+                      </span>
+                    )}
+                    {playerTrendingMap?.[p.playerName]?.isTrending && (
+                      <span
+                        className="ml-1 align-middle text-[12px]"
+                        title={`Hot this week — ${
+                          playerTrendingMap[p.playerName].currentWeekSales
+                        } sales (${
+                          Number.isFinite(
+                            playerTrendingMap[p.playerName].spikeMultiple,
+                          )
+                            ? `×${playerTrendingMap[
+                                p.playerName
+                              ].spikeMultiple.toFixed(1)} prior 3-week avg`
+                            : "first activity in 4 weeks"
+                        })`}
+                      >
+                        🔥
                       </span>
                     )}
                     {playerInternationalMap?.[p.playerName] && (
@@ -502,7 +535,7 @@ export default function ChaseScoreboard({
                   )}
                   <td
                     className="px-3 py-2 text-right tabular-nums"
-                    title={`Overall: ${p.marketScore}/100. Cross-product player index — sourced from this player's priced cards across every product in the DB.`}
+                    title={`Overall: ${p.marketScore}/100. Blended player index — 55% cross-product priced cards (PriceCharting) + 45% recent sales activity (Card Hedger).`}
                   >
                     {p.marketScore > 0 ? (
                       <>
@@ -652,6 +685,14 @@ function MarketScoreExplainer({ onClose }: { onClose: () => void }) {
             relative to them.
           </p>
           <ul className="space-y-1.5 text-[13px]">
+            <li>
+              <strong>Two signals, blended.</strong> The score
+              combines the player&apos;s priced-card market (top
+              graded sales + median across their parallels) with
+              their actual sales activity over the last 30 days.
+              Stale prices alone don&apos;t make the cut — recent
+              dollar volume earns its own weight in the rank.
+            </li>
             <li>
               <strong>Chase signal weighs heaviest.</strong> The
               trophy card isn&apos;t something you&apos;ll personally
