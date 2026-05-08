@@ -60,6 +60,7 @@ export default function TeamPriceEditor({
   playerInternationalMap,
   playerProspectMap,
   playerRookieMap,
+  playerTrendingMap,
   playerTrends,
   totalRankedTeams,
   trendDays,
@@ -101,6 +102,13 @@ export default function TeamPriceEditor({
    *  Beckett rookie tag. Powers the (R) marker on the player-view
    *  top-level rows in the team breakdown sheet. */
   playerRookieMap?: Record<string, boolean>;
+  /** Per-player trending classification (🔥 spike detection from CH
+   *  sales-stats). When .isTrending is true, the chase view renders
+   *  a 🔥 badge next to the player name. */
+  playerTrendingMap?: Record<
+    string,
+    { isTrending: boolean; currentWeekSales: number; spikeMultiple: number }
+  >;
   /** Number of teams in this product that received a market rank
    *  (i.e. have at least one priced player). Drives the "1 of N"
    *  suffix on the Market Rank column so the user sees their team's
@@ -214,6 +222,7 @@ export default function TeamPriceEditor({
           playerGlobalScores={playerGlobalScores}
           playerInternationalMap={playerInternationalMap}
           playerProspectMap={playerProspectMap}
+          playerTrendingMap={playerTrendingMap}
           playerTrends={playerTrends}
           trendDays={trendDays}
         />

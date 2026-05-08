@@ -208,6 +208,7 @@ export default function ChaseScoreboard({
   playerGlobalScores,
   playerInternationalMap,
   playerProspectMap,
+  playerTrendingMap,
   playerTrends,
   trendDays,
 }: {
@@ -221,6 +222,13 @@ export default function ChaseScoreboard({
    *  marker after the player name. Empty / undefined for non-Bowman
    *  products. */
   playerProspectMap?: Record<string, boolean>;
+  /** Per-player trending classification from CH sales-stats. When
+   *  .isTrending is true, the row gets a 🔥 badge after the name with
+   *  a tooltip showing the spike multiple + current-week sales count. */
+  playerTrendingMap?: Record<
+    string,
+    { isTrending: boolean; currentWeekSales: number; spikeMultiple: number }
+  >;
   playerTrends?: Record<string, number | null>;
   trendDays?: number;
 }) {
@@ -419,6 +427,24 @@ export default function ChaseScoreboard({
                         title="Prospect — minor leaguer or draft pick"
                       >
                         (P)
+                      </span>
+                    )}
+                    {playerTrendingMap?.[p.playerName]?.isTrending && (
+                      <span
+                        className="ml-1 align-middle text-[12px]"
+                        title={`Hot this week — ${
+                          playerTrendingMap[p.playerName].currentWeekSales
+                        } sales (${
+                          Number.isFinite(
+                            playerTrendingMap[p.playerName].spikeMultiple,
+                          )
+                            ? `×${playerTrendingMap[
+                                p.playerName
+                              ].spikeMultiple.toFixed(1)} prior 3-week avg`
+                            : "first activity in 4 weeks"
+                        })`}
+                      >
+                        🔥
                       </span>
                     )}
                     {playerInternationalMap?.[p.playerName] && (
