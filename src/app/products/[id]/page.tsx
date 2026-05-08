@@ -13,6 +13,8 @@ import {
   remapInternationalAnime,
 } from "@/lib/international-anime";
 import { computeTrendingMap } from "@/lib/cardhedger-trending";
+import { rollupChasePlayers } from "@/lib/chase-rollup";
+import { buildTeamExpandedRows } from "@/lib/team-expanded-rollup";
 import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
@@ -470,6 +472,47 @@ export default async function ProductPage({
   const cardsWithMarket = cards.filter(
     (c) => c.marketValueCents != null && c.marketValueCents > 0,
   ).length;
+
+  // Server-side chase rollup. Replaces what used to be a per-card
+  // array shipped to ChaseScoreboard for client-side rollup. On
+  // 2026 Bowman this dropped the HTML payload from ~1.18 MB to a
+  // tiny fraction (Mobile Safari load fix).
+  const chasePlayers = rollupChasePlayers(
+    cards.map((c) => ({
+      playerName: c.playerName,
+      team: c.team,
+      isRookie: isRookieVariation(c.variation),
+      cardNumber: c.cardNumber,
+      variation: c.variation,
+      ungradedCents: c.ungradedCents,
+      psa10Cents: c.psa10Cents,
+      printRun: c.printRun,
+      popG10: c.popG10,
+      popTotal: c.popTotal,
+      imageUrl: c.imageUrl,
+    })),
+  );
+  const hasInSetPriceData = cards.some(
+    (c) => c.psa10Cents != null && c.psa10Cents > 0,
+  );
+
+  // Pre-compute the team-expanded player sub-rows server-side. Each
+  // entry is a small per-team list keyed by the team name; replaces
+  // the prior approach of shipping the entire 1,200+ card array to
+  // the client just so it could group on click. Big payload win
+  // alongside the chase rollup.
+  const bucketWeightByLabel = new Map(
+    algorithm.map((b) => [b.label, b.weight]),
+  );
+  const teamExpandedRows = buildTeamExpandedRows(
+    cards.map((c) => ({
+      team: c.team,
+      playerName: c.playerName,
+      cardNumber: c.cardNumber,
+      variation: c.variation,
+    })),
+    bucketWeightByLabel,
+  );
   const hasTeams = product.teamPrices.length > 0;
   // Two flavors of "not yet released":
   //   - hasNoChecklist: empty product, replace scoreboard with the
@@ -591,32 +634,9 @@ export default async function ProductPage({
                 algorithm={algorithm}
                 teamBreakdownRows={teamBreakdown.rows}
                 playerBreakdownRows={playerBreakdown.rows}
-                cards={cards.map((c) => ({
-                  team: c.team,
-                  playerName: c.playerName,
-                  cardNumber: c.cardNumber,
-                  variation: c.variation,
-                  marketValueCents: c.marketValueCents,
-                }))}
-                chaseCards={cards.map((c) => ({
-                  playerName: c.playerName,
-                  team: c.team,
-                  // Rookie detection via shared helper — handles
-                  // Beckett's "· RC" suffix, standalone "RC", and the
-                  // word "rookie", while excluding mixed-class
-                  // "Rookie and Veteran" subsets to avoid false
-                  // positives on veterans who happen to land there.
-                  isRookie: isRookieVariation(c.variation),
-                  cardNumber: c.cardNumber,
-                  variation: c.variation,
-                  ungradedCents: c.ungradedCents,
-                  psa10Cents: c.psa10Cents,
-                  psa9Cents: c.psa9Cents,
-                  printRun: c.printRun,
-                  imageUrl: c.imageUrl,
-                  popG10: c.popG10,
-                  popTotal: c.popTotal,
-                }))}
+                chasePlayers={chasePlayers}
+                hasInSetPriceData={hasInSetPriceData}
+                teamExpandedRows={teamExpandedRows}
                 hotThisWeek={hotThisWeek}
                 trendingDiagnostics={trendingDiagnostics}
                 playerGlobalScores={playerGlobalScores}
