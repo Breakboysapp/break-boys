@@ -53,8 +53,7 @@ export default async function HotIndexPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-500">
           Players whose card sales spiked vs the prior 3-week
-          baseline. Sourced from Card Hedger&apos;s 25M+ sale
-          tracker. Pick a sport.
+          baseline. Pick a sport.
         </p>
       </div>
 
