@@ -59,7 +59,7 @@ export default function HotThisWeek({
         </span>
         <span
           aria-hidden
-          className={`text-xs text-slate-500 transition-transform ${
+          className={`flex h-7 w-7 items-center justify-center rounded-full bg-accent text-base font-extrabold text-white transition-transform ${
             open ? "rotate-180" : ""
           }`}
         >
