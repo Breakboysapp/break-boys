@@ -29,8 +29,12 @@ export type HotPlayer = {
 };
 
 export default function HotThisWeek({ players }: { players: HotPlayer[] }) {
-  if (players.length === 0) return null;
-
+  // Always render the section header — even with zero movers, the
+  // empty-state copy confirms to the user that the data path is
+  // alive (vs the previous behavior of silently hiding when the
+  // CH integration was returning nothing). When the section truly
+  // shouldn't render at all (no CH key, etc.), the parent passes
+  // `undefined` and short-circuits before reaching here.
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
       <div className="flex items-baseline justify-between border-b border-slate-200 bg-bone px-4 py-2.5">
@@ -46,8 +50,13 @@ export default function HotThisWeek({ players }: { players: HotPlayer[] }) {
           Source: Card Hedger
         </div>
       </div>
-      <ul className="divide-y divide-slate-100">
-        {players.map((p, i) => (
+      {players.length === 0 ? (
+        <div className="px-4 py-6 text-center text-xs text-slate-400">
+          No players spiking ≥5× this week. Quiet market for this product.
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {players.map((p, i) => (
           <li
             key={p.playerName}
             className="flex items-center gap-3 px-4 py-2.5 hover:bg-bone/40"
@@ -98,8 +107,9 @@ export default function HotThisWeek({ players }: { players: HotPlayer[] }) {
               </div>
             </div>
           </li>
-        ))}
-      </ul>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
