@@ -73,6 +73,19 @@ model Card {
   popG10           Int?
   popTotal         Int?
   popUpdatedAt     DateTime?
+  // Card Hedger linkage. cardHedgerId is the durable foreign key
+  // (returned by /v1/cards/card-match and /v1/cards/card-search) we
+  // use for all subsequent CH calls — prices-by-card, comps,
+  // all-prices-by-card. Populated by scripts/match-cardhedger.ts on
+  // demand and via the daily refresh cron.
+  //
+  // matchedAt + confidence + reasoning let us re-attempt low-confidence
+  // matches periodically as CH's catalog improves (their fuzzy matcher
+  // gets sharper as more sales accumulate on a fresh release).
+  cardHedgerId         String?   @unique
+  cardHedgerMatchedAt  DateTime?
+  cardHedgerConfidence Float?
+  cardHedgerReasoning  String?
   product          Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
   userCards        UserCard[]
   priceSnapshots   CardPriceSnapshot[]
