@@ -8,6 +8,7 @@ import {
   dollarsToCents,
   formatRelativeTime,
 } from "@/lib/money";
+import HotThisWeek, { type HotPlayer } from "./HotThisWeek";
 import TeamBreakdownSheet from "./TeamBreakdownSheet";
 import ChaseScoreboard, { type ChaseCard } from "./ChaseScoreboard";
 
@@ -56,6 +57,7 @@ export default function TeamPriceEditor({
   playerBreakdownRows,
   cards,
   chaseCards,
+  hotThisWeek,
   playerGlobalScores,
   playerInternationalMap,
   playerProspectMap,
@@ -107,8 +109,18 @@ export default function TeamPriceEditor({
    *  a 🔥 badge next to the player name. */
   playerTrendingMap?: Record<
     string,
-    { isTrending: boolean; currentWeekSales: number; spikeMultiple: number }
+    {
+      isTrending: boolean;
+      currentWeekSales: number;
+      spikeMultiple: number;
+      currentWeekCents: number;
+    }
   >;
+  /** Pre-ranked list of trending players for this product, capped at
+   *  8 entries, sorted by current-week dollar volume. Powers the
+   *  Hot This Week section above the scoreboard. Built server-side
+   *  in page.tsx so the client component stays presentational. */
+  hotThisWeek?: HotPlayer[];
   /** Number of teams in this product that received a market rank
    *  (i.e. have at least one priced player). Drives the "1 of N"
    *  suffix on the Market Rank column so the user sees their team's
@@ -204,6 +216,17 @@ export default function TeamPriceEditor({
         <div className="flex items-center gap-2">
           <ScoreboardToggle current={scoreboard} onChange={setScoreboard} />
         </div>
+      )}
+
+      {/* Hot This Week — players whose current-week sales spiked vs
+          the prior 3-week baseline. Sits above the scoreboard so it's
+          the first market signal a user sees. Hidden when no players
+          in this product are trending; CH outage also degrades to
+          hidden. Surfaces non-priced movers (Patrick Copen-types)
+          that the chase view's PSA-10-ranked top 50 would never
+          show. */}
+      {hotThisWeek && hotThisWeek.length > 0 && (
+        <HotThisWeek players={hotThisWeek} />
       )}
 
       {scoreboard === "team" ? (
