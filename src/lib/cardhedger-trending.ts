@@ -24,9 +24,14 @@ export type TrendingInfo = {
   /** Multiple over prior 3-week avg. Surfaced in the tooltip so users
    *  can see how big the spike is. Infinity when prior was 0. */
   spikeMultiple: number;
+  /** Current week's dollar volume in cents — for ranking the Hot
+   *  This Week section by money flow, not just sales count. */
+  currentWeekCents: number;
 };
 
-const BATCH_SIZE = 50;
+// Card Hedger's sales-stats-by-player caps the players[] array at 25.
+// Sending 50 returns a 422 with "List should have at most 25 items".
+const BATCH_SIZE = 25;
 const SPIKE_THRESHOLD = 5;
 const MIN_CURRENT_SALES = 5;
 const MIN_TOTAL_SALES = 5;
@@ -56,7 +61,11 @@ export async function computeTrendingMap(
       });
       for (const r of stats) {
         const counts = r.buckets.map((b) => b.count);
-        out[r.player] = classifyTrending(counts);
+        const currentBucket = r.buckets[r.buckets.length - 1];
+        out[r.player] = {
+          ...classifyTrending(counts),
+          currentWeekCents: currentBucket?.totalCents ?? 0,
+        };
       }
     } catch (e) {
       console.warn(
@@ -69,7 +78,9 @@ export async function computeTrendingMap(
   return out;
 }
 
-function classifyTrending(weeklyCounts: number[]): TrendingInfo {
+function classifyTrending(
+  weeklyCounts: number[],
+): Omit<TrendingInfo, "currentWeekCents"> {
   if (weeklyCounts.length < PERIODS) {
     return { isTrending: false, currentWeekSales: 0, spikeMultiple: 0 };
   }

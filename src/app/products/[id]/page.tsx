@@ -361,6 +361,44 @@ export default async function ProductPage({
       }
     }
   }
+
+  // Build the "Hot This Week" feed from the trending map, ranked by
+  // current-week dollar volume so the meaningful spikes lead. Caps
+  // at 8 entries — anything beyond that is more noise than signal at
+  // the product-page level. Most-frequent team across the player's
+  // cards in this product surfaces alongside the name. Rookie /
+  // prospect markers reuse the maps we just built above.
+  const teamCountByPlayer = new Map<string, Map<string, number>>();
+  for (const c of cards) {
+    if (!c.team || c.team === "—") continue;
+    let inner = teamCountByPlayer.get(c.playerName);
+    if (!inner) {
+      inner = new Map();
+      teamCountByPlayer.set(c.playerName, inner);
+    }
+    inner.set(c.team, (inner.get(c.team) ?? 0) + 1);
+  }
+  const primaryTeamFor = (name: string): string | null => {
+    const inner = teamCountByPlayer.get(name);
+    if (!inner) return null;
+    return (
+      [...inner.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+    );
+  };
+  const hotThisWeek = Object.entries(playerTrendingMap)
+    .filter(([, t]) => t.isTrending)
+    .map(([name, t]) => ({
+      playerName: name,
+      team: primaryTeamFor(name),
+      currentWeekSales: t.currentWeekSales,
+      currentWeekCents: t.currentWeekCents,
+      spikeMultiple: t.spikeMultiple,
+      isRookie: playerRookieMap[name] ?? false,
+      isProspect: playerProspectMap[name] ?? false,
+    }))
+    .sort((a, b) => b.currentWeekCents - a.currentWeekCents)
+    .slice(0, 8);
+
   const totalContentScore = teamBreakdown.rows.reduce(
     (s, r) => s + r.totalScore,
     0,
@@ -515,6 +553,7 @@ export default async function ProductPage({
                   popG10: c.popG10,
                   popTotal: c.popTotal,
                 }))}
+                hotThisWeek={hotThisWeek}
                 playerGlobalScores={playerGlobalScores}
                 playerInternationalMap={playerInternationalMap}
                 playerProspectMap={playerProspectMap}
