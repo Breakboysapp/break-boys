@@ -67,6 +67,7 @@ export default function TeamBreakdownSheet({
   teamRows,
   playerRows,
   cards,
+  teamExpandedRows,
   playerProspectMap,
   playerRookieMap,
   totalRankedTeams,
@@ -75,6 +76,12 @@ export default function TeamBreakdownSheet({
   teamRows: Row[];
   playerRows: Row[];
   cards: CardLite[];
+  /** Pre-computed player sub-rows per team (from
+   *  src/lib/team-expanded-rollup.ts). Used when a team row is
+   *  expanded — replaces the prior client-side grouping over the
+   *  raw cards array. Optional during the migration; falls back to
+   *  client grouping when absent. */
+  teamExpandedRows?: import("@/lib/team-expanded-rollup").TeamExpandedRows;
   /** Total teams with a market rank (denominator for the "rank of N"
    *  display). When undefined, the Market Rank column falls back to
    *  showing just the rank number. */
@@ -472,9 +479,15 @@ export default function TeamBreakdownSheet({
                     )}
                   </tr>
                   {isOpen &&
-                    computePlayerRows(
-                      cardsByTeam.get(r.name) ?? [],
-                      buckets,
+                    (teamExpandedRows?.[r.name]
+                      ? teamExpandedRows[r.name]
+                      : computePlayerRows(
+                          cardsByTeam.get(r.name) ?? [],
+                          buckets,
+                        ).map((p) => ({
+                          ...p,
+                          byBucket: Object.fromEntries(p.byBucket.entries()),
+                        }))
                     ).map((p) => (
                       // Player rows are rendered as real <tr> children of
                       // the parent table — NOT a nested table inside a
@@ -521,7 +534,7 @@ export default function TeamBreakdownSheet({
                           )}
                         </td>
                         {buckets.map((b) => {
-                          const nums = p.byBucket.get(b.label) ?? [];
+                          const nums = p.byBucket[b.label] ?? [];
                           return (
                             <td
                               key={b.label}

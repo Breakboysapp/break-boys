@@ -1,26 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { formatUsd } from "@/lib/money";
 import { playerSlug } from "@/lib/player-slug";
-import { isAutoCard } from "@/lib/scoring";
+import type { PlayerRollup as ServerPlayerRollup } from "@/lib/chase-rollup";
 
 /**
- * Per-card data the Chase view needs. A subset of the full Card row,
- * narrowed at the page-loader level so we don't ship every column to
- * the client.
+ * Per-card data the Chase view used to need. Kept exported because
+ * other components (TeamPriceEditor) still type their `cards` prop
+ * against this shape during the migration. Once everything is
+ * rollup-driven we'll remove the client-side card payload entirely.
  */
 export type ChaseCard = {
   playerName: string;
-  /** Real team when available ("Los Angeles Dodgers"), or "—" placeholder
-   * for cards the importer couldn't team-infer. Surfaced as part of the
-   * Player column subtitle so users see who the player rolls up under. */
   team: string;
-  /** True when this card carries the Beckett rookie tag — variation
-   * ending in "· RC" (the convention from the xlsx upload) or
-   * containing the word "rookie". Aggregated up to player level by
-   * the rollup so any-rookie-card-in-set tags the player with (R). */
   isRookie: boolean;
   cardNumber: string;
   variation: string | null;
@@ -33,178 +27,10 @@ export type ChaseCard = {
   imageUrl: string | null;
 };
 
-type PlayerRollup = {
-  playerName: string;
-  /** First non-placeholder team encountered for this player. "—" only
-   * if every one of their cards has the placeholder; in practice that's
-   * rare since manual checklist uploads carry real teams. */
-  team: string;
-  /** True if ANY of the player's cards in this set is rookie-tagged.
-   * Drives the "(R)" suffix shown after the player name. */
-  isRookie: boolean;
-  cardCount: number;
-  /** How many of this player's cards in the set are autographs.
-   * Drives the "X autos" subtitle so users can see auto chase
-   * count at a glance — autos are the biggest chases by far so
-   * the count matters more than the raw parallel total. */
-  autoCount: number;
-  /** % change of the player's overall market basket over the snapshot
-   * window — not just the top card. Card-Ladder-index style:
-   * aggregates all of the player's priced cards' movements into a
-   * single market-direction number. Filled in from the playerTrends
-   * map after rollup. */
-  marketTrendPct: number | null;
-  /** Highest PSA 10 across this player's cards. Drives the score —
-   *  Card Ladder's player-index logic: a /1 Superfractor selling for
-   *  $50k IS a market signal that lifts the player's whole market,
-   *  even if you'll never pull that exact card. The chase prize tells
-   *  you what collectors will pay at the top end, which informs what
-   *  every other card by that player is worth. */
-  topPsa10Cents: number;
-  topVariation: string | null;
-  topCardNumber: string;
-  topImageUrl: string | null;
-  /** Median PSA 10 across the player's priced cards. The "typical
-   *  card" floor — counterweight to topPsa10Cents so a player with
-   *  one high-priced /1 and nothing else doesn't dominate over a
-   *  player with depth (multiple solid parallels). */
-  medianPsa10Cents: number;
-  /** 0-100 player market score — Card-Ladder-style index. Sourced
-   *  from the player's priced cards across ALL products in the DB
-   *  (cross-product / hobby-wide footprint). Stable across product
-   *  pages: a player's "Overall" reads the same on every product
-   *  they appear in. Drives the rank order. */
-  marketScore: number;
-  /** 0-100 set-specific market score — same blend math, but sourced
-   *  ONLY from this product's priced cards. Drops to 0 on day-of-
-   *  release when nothing's traded yet. Useful contrast: a player
-   *  whose Overall is high but whose In-Set is low signals "the
-   *  market knows them, but their cards in THIS set aren't trading
-   *  yet" — and vice versa for set-specific heat. */
-  inSetMarketScore: number;
-  /** Combined PSA + CGC pop counts — sum across player's cards. Pop
-   *  volume is its own market signal: collectors only pay grading fees
-   *  on cards they think are worth grading. Gem rate is shown in its
-   *  own column so users can read both signals independently. */
-  popG10Sum: number;
-  popTotalSum: number;
-  gemRate: number | null;
-};
-
-function median(nums: number[]): number {
-  if (nums.length === 0) return 0;
-  const sorted = [...nums].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? sorted[mid]
-    : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-// Per-card effective value: PSA 10 if PC has the comp, otherwise
-// raw × 6. Lets cards with raw-only comps (Arnold's BD-30 Black /1
-// at $3K raw, no graded comp yet) still feed the player's blend. 6
-// is conservative — high-end auto chase often sells at 10-15× raw
-// graded, but underestimating beats over-inflating un-traded cards.
-const RAW_TO_GRADED_MULT = 6;
-function effectiveValue(c: ChaseCard): number {
-  const psa = c.psa10Cents ?? 0;
-  const raw = (c.ungradedCents ?? 0) * RAW_TO_GRADED_MULT;
-  return Math.max(psa, raw);
-}
-
-function rollupByPlayer(cards: ChaseCard[]): PlayerRollup[] {
-  const m = new Map<
-    string,
-    PlayerRollup & { _psa10s: number[] }
-  >();
-  for (const c of cards) {
-    const psa10 = effectiveValue(c);
-    let row = m.get(c.playerName);
-    if (!row) {
-      row = {
-        playerName: c.playerName,
-        team: "—",
-        isRookie: false,
-        cardCount: 0,
-        autoCount: 0,
-        topPsa10Cents: 0,
-        topVariation: null,
-        topCardNumber: "",
-        topImageUrl: null,
-        marketTrendPct: null,
-        medianPsa10Cents: 0,
-        marketScore: 0,
-        inSetMarketScore: 0,
-        popG10Sum: 0,
-        popTotalSum: 0,
-        gemRate: null,
-        _psa10s: [],
-      };
-      m.set(c.playerName, row);
-    }
-    row.cardCount++;
-    if (isAutoCard(c.cardNumber, c.variation)) row.autoCount++;
-    // Take the first real team value we encounter — usually the same
-    // for all of a player's cards in a single set unless they were
-    // traded mid-season.
-    if (row.team === "—" && c.team && c.team !== "—") row.team = c.team;
-    if (c.isRookie) row.isRookie = true;
-    if (psa10 > 0) row._psa10s.push(psa10);
-    // Update top card when this card beats the current top, OR when
-    // it's the first card we've seen for this player and we've never
-    // recorded a card yet (topCardNumber === ""). The fallback path
-    // matters on day-of-release products where every card is psa10=0:
-    // without it, Top Card stays blank and the Chase view looks broken.
-    // With it, Holliday's first card (e.g. BP-1) becomes the
-    // representative until in-set sales accumulate and a real chase
-    // card overrides it.
-    const isFirstCardEver = row.topCardNumber === "";
-    if (psa10 > row.topPsa10Cents || isFirstCardEver) {
-      row.topPsa10Cents = psa10;
-      row.topVariation = c.variation;
-      row.topCardNumber = c.cardNumber;
-      row.topImageUrl = c.imageUrl;
-    }
-    if (c.popG10 != null) row.popG10Sum += c.popG10;
-    if (c.popTotal != null) row.popTotalSum += c.popTotal;
-  }
-
-  const players = [...m.values()];
-  // Compute median across each player's priced cards.
-  for (const p of players) p.medianPsa10Cents = median(p._psa10s);
-
-  // Composite market score: 60% top + 40% median, both log-scaled,
-  // normalized against the set's max blend. Log because PSA 10 prices
-  // span 4+ orders of magnitude — linear normalization squashes the
-  // middle to single digits. Floor at 1 to keep dim players visible.
-  const blend = (top: number, mid: number) =>
-    Math.log(top + 1) * 0.6 + Math.log(mid + 1) * 0.4;
-  const maxBlend = Math.max(
-    ...players.map((p) => blend(p.topPsa10Cents, p.medianPsa10Cents)),
-  );
-  if (maxBlend > 0) {
-    for (const p of players) {
-      const playerBlend = blend(p.topPsa10Cents, p.medianPsa10Cents);
-      const score =
-        playerBlend > 0
-          ? Math.max(1, Math.round((playerBlend / maxBlend) * 100))
-          : 0;
-      // Both fields seeded with the in-set score initially. The page
-      // overrides marketScore with the cross-product (Overall) score
-      // afterward; inSetMarketScore stays as the set-specific snapshot.
-      p.marketScore = score;
-      p.inSetMarketScore = score;
-    }
-  }
-  for (const row of players) {
-    row.gemRate =
-      row.popTotalSum > 0 ? row.popG10Sum / row.popTotalSum : null;
-  }
-  return players.sort((a, b) => b.marketScore - a.marketScore);
-}
+type PlayerRollup = ServerPlayerRollup;
 
 export default function ChaseScoreboard({
-  cards,
+  players: rawPlayers,
   playerGlobalScores,
   playerInternationalMap,
   playerProspectMap,
@@ -212,7 +38,11 @@ export default function ChaseScoreboard({
   playerTrends,
   trendDays,
 }: {
-  cards: ChaseCard[];
+  /** Pre-rolled player rows from src/lib/chase-rollup.ts. Server-
+   *  side rollup keeps the client payload tiny — ~50 player rows
+   *  beats shipping 1,200+ raw cards (was ~1.18 MB on 2026 Bowman,
+   *  too heavy for iOS Safari). */
+  players: PlayerRollup[];
   playerGlobalScores?: Record<string, number>;
   /** Per-player international tag (e.g. "USA", "Japan") from "Anime"-
    *  style insert cards. Drives a small "Anime: USA" subtitle beneath
@@ -232,37 +62,28 @@ export default function ChaseScoreboard({
   playerTrends?: Record<string, number | null>;
   trendDays?: number;
 }) {
-  const players = useMemo(() => {
-    const rollup = rollupByPlayer(cards);
-    // Override marketScore with the cross-product (global) player
-    // index when available. The in-set rollup gives us all the
-    // metadata (top card, parallel count, gem rate) but the SCORE
-    // itself is sourced from each player's hobby-wide priced data
-    // so that new products without in-set trades still show real
-    // rankings on day 1. When global data is missing for a player
-    // (rare — only true rookies with zero traded cards anywhere),
-    // we keep the in-set rollup score as fallback.
-    if (playerGlobalScores) {
-      for (const r of rollup) {
-        const g = playerGlobalScores[r.playerName];
-        if (g != null && g > 0) {
-          r.marketScore = g;
-        }
+  // Apply final overrides + re-sort. The server gives us a clean
+  // pre-rolled list; here we just stitch in the cross-product
+  // marketScore (Overall) and the player-trend %, then re-sort.
+  // This is purely O(N) over the already-rolled players, no card
+  // iteration on the client.
+  const players: PlayerRollup[] = (() => {
+    const overridden = rawPlayers.map((p) => {
+      let marketScore = p.marketScore;
+      if (playerGlobalScores) {
+        const g = playerGlobalScores[p.playerName];
+        if (g != null && g > 0) marketScore = g;
       }
-    }
-    if (playerTrends) {
-      for (const r of rollup) {
-        const pct = playerTrends[r.playerName];
-        if (pct != null && Number.isFinite(pct)) {
-          r.marketTrendPct = pct;
-        }
+      let marketTrendPct = p.marketTrendPct;
+      if (playerTrends) {
+        const pct = playerTrends[p.playerName];
+        if (pct != null && Number.isFinite(pct)) marketTrendPct = pct;
       }
-    }
-    // Re-sort after overriding scores so the displayed top-20 reflects
-    // the global player market, not the in-set rollup default order.
-    rollup.sort((a, b) => b.marketScore - a.marketScore);
-    return rollup;
-  }, [cards, playerGlobalScores, playerTrends]);
+      return { ...p, marketScore, marketTrendPct };
+    });
+    overridden.sort((a, b) => b.marketScore - a.marketScore);
+    return overridden;
+  })();
   // Two-tier reveal: top 20 by default (compact, what most users
   // actually care about), expandable to top 50 via a "See more"
   // affordance at the bottom of the table. Anything past 50 is
