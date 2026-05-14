@@ -46,23 +46,29 @@ export async function GET(req: Request) {
 
   const t0 = Date.now();
 
-  // Find every (playerName, sport) where the player has at least one
-  // priced card anywhere in our DB. Unpriced players don't have
-  // meaningful sales activity to refresh.
-  const rows = await prisma.card.findMany({
+  // Per-sport "universe" of players to sweep. Strategy:
+  //   1. Always include every player with a priced card (PC data
+  //      coverage = strong market activity signal already).
+  //   2. Top up with the most-prolific unpriced players per sport
+  //      (by card count in our DB), up to PER_SPORT_CAP. Catches
+  //      sports we haven't ingested PC pricing for yet (NBA, NFL)
+  //      and surfaces meaningful trending data for them too.
+  //
+  // The card-count proxy is good enough: players who appear on
+  // many cards across many products are by definition the names
+  // collectors care about, and Card Hedger only has activity data
+  // for players who are traded in volume.
+  const PER_SPORT_CAP = 500;
+
+  // Step 1: priced players.
+  const priced = await prisma.card.findMany({
     where: {
-      OR: [
-        { psa10Cents: { gt: 0 } },
-        { ungradedCents: { gt: 0 } },
-      ],
+      OR: [{ psa10Cents: { gt: 0 } }, { ungradedCents: { gt: 0 } }],
     },
-    select: {
-      playerName: true,
-      product: { select: { sport: true } },
-    },
+    select: { playerName: true, product: { select: { sport: true } } },
   });
   const sportPlayers = new Map<string, Set<string>>();
-  for (const r of rows) {
+  for (const r of priced) {
     if (!r.playerName || !r.product?.sport) continue;
     let set = sportPlayers.get(r.product.sport);
     if (!set) {
@@ -70,6 +76,36 @@ export async function GET(req: Request) {
       sportPlayers.set(r.product.sport, set);
     }
     set.add(r.playerName);
+  }
+
+  // Step 2: top up each sport with the most-prolific players by
+  // card count. groupBy on a join needs raw SQL; cheaper to just
+  // fetch (playerName, productId) pairs and count in-memory.
+  const distinctSports = await prisma.product.findMany({
+    select: { sport: true },
+    distinct: ["sport"],
+  });
+  for (const { sport } of distinctSports) {
+    const set = sportPlayers.get(sport) ?? new Set<string>();
+    if (set.size >= PER_SPORT_CAP) {
+      sportPlayers.set(sport, set);
+      continue;
+    }
+    const allCards = await prisma.card.findMany({
+      where: { product: { sport } },
+      select: { playerName: true },
+    });
+    const cardCount = new Map<string, number>();
+    for (const c of allCards) {
+      if (!c.playerName) continue;
+      cardCount.set(c.playerName, (cardCount.get(c.playerName) ?? 0) + 1);
+    }
+    const ranked = [...cardCount.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [name] of ranked) {
+      if (set.size >= PER_SPORT_CAP) break;
+      set.add(name);
+    }
+    sportPlayers.set(sport, set);
   }
 
   const summary: Array<{
