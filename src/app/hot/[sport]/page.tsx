@@ -85,13 +85,22 @@ export default async function HotSportPage({
     null,
   );
 
-  // Rank by 7-day dollar volume — "hot THIS week" semantic. Postgres
-  // returns the top 200 by 30-day $ for the working set; we then
-  // re-sort by 7-day $ to surface what's moving NOW. Money-weighted
-  // beats count-weighted: a single $50k auto sale signals more
-  // market heat than 50 base cards at $1, so a player like Bijan
-  // (fewer sales, higher avg price) outranks a player like Dart
-  // (many cheap rookie-rush trades).
+  // Composite "Hot Score" = log(7d sales) × log(7d cents).
+  //
+  // Pure dollar-volume ranking lets a player like Bijan win on a
+  // small number of premium auto sales; pure sales-count ranking
+  // lets a player like Dart win on a flood of cheap rookie-rush
+  // base-card trades. Real heat is BOTH: meaningful transaction
+  // volume AND meaningful dollar flow. Multiplication ensures a
+  // player with zero in either dimension scores zero; the log
+  // compression handles the multi-order-of-magnitude variance so
+  // a 10× swing in dollars carries about the same weight as a 10×
+  // swing in sales count.
+  const hotScore = (sales: number, cents: number) => {
+    if (sales <= 0 || cents <= 0) return 0;
+    return Math.log(sales) * Math.log(cents);
+  };
+
   const ranked = snapshots
     .filter((s) => s.last30dCents > 0)
     .map((s) => ({
@@ -106,8 +115,10 @@ export default async function HotSportPage({
       // tooltip math. Frontend renders "new" instead of a number
       // when not finite.
       spikeMultiple: s.spikeMultiple ?? Infinity,
+      hotScore: hotScore(s.currentWeekSales, s.currentWeekCents),
     }))
-    .sort((a, b) => b.currentWeekCents - a.currentWeekCents);
+    .filter((r) => r.hotScore > 0)
+    .sort((a, b) => b.hotScore - a.hotScore);
 
   const trendingCount = ranked.filter((r) => r.isTrending).length;
   const totalDollars = ranked.reduce((s, r) => s + r.last30dCents, 0);
@@ -176,9 +187,9 @@ export default async function HotSportPage({
             <div className="col-span-3 sm:col-span-2 text-right">7d sales</div>
             <div
               className="col-span-3 sm:col-span-2 text-right"
-              title="Ranked by 7-day dollar volume. The big number is what the player's cards moved this week; the smaller number below is the 30-day total."
+              title="Hot Score blends 7-day sales count × 7-day dollar volume. Both signals must be high — a player who only moves a few premium cards or only moves cheap base-card volume won't lead. Big number is the dollar flow; smaller below is the 30-day total for context."
             >
-              7d $ ↓
+              7d $
             </div>
           </div>
           <ul className="divide-y divide-slate-100">
