@@ -85,9 +85,13 @@ export default async function HotSportPage({
     null,
   );
 
-  // Rank by 30-day dollar volume — already sorted by Postgres above.
-  // Filter to players with non-zero volume + decorate with display
-  // bits sourced from the cards table.
+  // Rank by 7-day dollar volume — "hot THIS week" semantic. Postgres
+  // returns the top 200 by 30-day $ for the working set; we then
+  // re-sort by 7-day $ to surface what's moving NOW. Money-weighted
+  // beats count-weighted: a single $50k auto sale signals more
+  // market heat than 50 base cards at $1, so a player like Bijan
+  // (fewer sales, higher avg price) outranks a player like Dart
+  // (many cheap rookie-rush trades).
   const ranked = snapshots
     .filter((s) => s.last30dCents > 0)
     .map((s) => ({
@@ -170,7 +174,12 @@ export default async function HotSportPage({
             <div className="col-span-5 sm:col-span-4">Player</div>
             <div className="hidden sm:col-span-3 sm:block">Team</div>
             <div className="col-span-3 sm:col-span-2 text-right">7d sales</div>
-            <div className="col-span-3 sm:col-span-2 text-right">30d $</div>
+            <div
+              className="col-span-3 sm:col-span-2 text-right"
+              title="Ranked by 7-day dollar volume. The big number is what the player's cards moved this week; the smaller number below is the 30-day total."
+            >
+              7d $ ↓
+            </div>
           </div>
           <ul className="divide-y divide-slate-100">
             {ranked.slice(0, 100).map((r, i) => (
