@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { pickSource } from "@/lib/sources/checklist";
+import {
+  buildCanonicalMap,
+  canonicalize,
+} from "@/lib/player-name-normalize";
 
 export const maxDuration = 60;
 
@@ -41,28 +45,46 @@ export async function POST(
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    if (body.replace) {
-      await tx.card.deleteMany({ where: { productId: id } });
-    }
-    await tx.card.createMany({
-      data: result.rows.map((r) => ({
-        productId: id,
-        team: r.team,
-        playerName: r.playerName,
-        cardNumber: r.cardNumber,
-        variation: r.variation ?? null,
-      })),
-    });
-    const teams = Array.from(new Set(result.rows.map((r) => r.team)));
-    for (const team of teams) {
-      await tx.teamPrice.upsert({
-        where: { productId_team: { productId: id, team } },
-        update: {},
-        create: { productId: id, team },
+  // Snapshot the existing canonical player-name spellings before
+  // the import. For each incoming row, if a canonical form already
+  // exists for the lowercased name, use it — otherwise the new
+  // spelling becomes the canonical going forward. Prevents future
+  // case-collision dupes ("LeBron James" vs "Lebron James") from
+  // creeping back in via fresh imports.
+  const canonicalMap = await buildCanonicalMap(prisma);
+
+  // Run the heavy work OUTSIDE Prisma's default transaction (5s
+  // timeout). A Beckett checklist of ~1000 cards + ~30 team upserts
+  // serially would routinely tip past that — surfaced as a silent
+  // 500 on the Hoops import. With an explicit timeout, we can fit
+  // up to 30s of DB work inside one consistent transaction; that's
+  // ample headroom even for the largest checklists we've seen
+  // (2025 Bowman Draft at 7k+ rows).
+  await prisma.$transaction(
+    async (tx) => {
+      if (body.replace) {
+        await tx.card.deleteMany({ where: { productId: id } });
+      }
+      await tx.card.createMany({
+        data: result.rows.map((r) => ({
+          productId: id,
+          team: r.team,
+          playerName: canonicalize(r.playerName, canonicalMap),
+          cardNumber: r.cardNumber,
+          variation: r.variation ?? null,
+        })),
       });
-    }
-  });
+      const teams = Array.from(new Set(result.rows.map((r) => r.team)));
+      for (const team of teams) {
+        await tx.teamPrice.upsert({
+          where: { productId_team: { productId: id, team } },
+          update: {},
+          create: { productId: id, team },
+        });
+      }
+    },
+    { timeout: 30_000, maxWait: 5_000 },
+  );
 
   return NextResponse.json(
     {
