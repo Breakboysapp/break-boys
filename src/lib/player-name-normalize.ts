@@ -14,16 +14,33 @@
  * canonical form exists, use it; otherwise the incoming spelling
  * becomes the canonical going forward.
  *
- * This is intentionally case-only normalization. We do NOT collapse
- * accents, suffixes, or nickname variants — those are intentional
- * distinctions in the hobby (e.g. "Cal Ripken Jr." vs "Cal Ripken
- * III" are different players in the catalog, and "Jose Altuve" vs
- * "José Altuve" might legitimately appear on separate cards).
+ * Normalization folds case AND diacritics — turns out our data
+ * is dirty along both axes: "Luka Doncic" / "Luka Dončić" (NFC) /
+ * "Luka Dončić" (NFD-decomposed) all need to collapse to one
+ * canonical entry. Same shape for "José Altuve" / "Jose Altuve",
+ * "Fernando Tatís Jr." / "Fernando Tatis Jr.", etc. The canonical
+ * form preserves whatever accents the most-common spelling uses,
+ * so the displayed name stays correct.
+ *
+ * What we explicitly do NOT collapse: suffixes (Jr./Sr./III),
+ * nicknames (Mike vs Michael), or initials — those are intentional
+ * distinctions in the hobby ("Cal Ripken Jr." and "Cal Ripken III"
+ * are genuinely different players).
  */
 
 import type { PrismaClient } from "@prisma/client";
 
 export type CanonicalMap = Map<string, string>;
+
+/** Lowercase + strip combining diacritics. Folds NFC and NFD
+ *  variants of the same name to the same key, and collapses
+ *  accent vs. no-accent. */
+export function normalizeKey(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
 
 /**
  * Build a lowercase → canonical-spelling map from the existing
@@ -45,7 +62,7 @@ export async function buildCanonicalMap(
   const byLower = new Map<string, { name: string; count: number }>();
   for (const r of rows) {
     if (!r.playerName) continue;
-    const k = r.playerName.toLowerCase();
+    const k = normalizeKey(r.playerName);
     const cur = byLower.get(k);
     if (!cur || r._count._all > cur.count) {
       byLower.set(k, { name: r.playerName, count: r._count._all });
@@ -69,7 +86,7 @@ export function canonicalize(
   map: CanonicalMap,
 ): string {
   if (!candidate) return candidate;
-  const k = candidate.toLowerCase();
+  const k = normalizeKey(candidate);
   const existing = map.get(k);
   if (existing) return existing;
   map.set(k, candidate);
