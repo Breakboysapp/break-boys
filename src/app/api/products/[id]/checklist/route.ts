@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseChecklist } from "@/lib/csv";
+import {
+  buildCanonicalMap,
+  canonicalize,
+} from "@/lib/player-name-normalize";
+
+export const maxDuration = 60;
 
 export async function POST(
   request: Request,
@@ -28,29 +34,41 @@ export async function POST(
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    if (body.replace) {
-      await tx.card.deleteMany({ where: { productId: id } });
-    }
-    await tx.card.createMany({
-      data: rows.map((r) => ({
-        productId: id,
-        team: r.team,
-        playerName: r.playerName,
-        cardNumber: r.cardNumber,
-        variation: r.variation ?? null,
-      })),
-    });
+  // Canonicalize player names against existing card data so case-
+  // collision dupes ("LeBron James" vs "Lebron James") can't leak
+  // in. Snapshot is built once before the loop; new spellings
+  // become the canonical going forward.
+  const canonicalMap = await buildCanonicalMap(prisma);
 
-    const teams = Array.from(new Set(rows.map((r) => r.team)));
-    for (const team of teams) {
-      await tx.teamPrice.upsert({
-        where: { productId_team: { productId: id, team } },
-        update: {},
-        create: { productId: id, team },
+  // Explicit 30s transaction timeout — Prisma's default 5s would
+  // 500 silently on big checklists (~1k+ rows + dozens of team
+  // upserts serialized inside the transaction).
+  await prisma.$transaction(
+    async (tx) => {
+      if (body.replace) {
+        await tx.card.deleteMany({ where: { productId: id } });
+      }
+      await tx.card.createMany({
+        data: rows.map((r) => ({
+          productId: id,
+          team: r.team,
+          playerName: canonicalize(r.playerName, canonicalMap),
+          cardNumber: r.cardNumber,
+          variation: r.variation ?? null,
+        })),
       });
-    }
-  });
+
+      const teams = Array.from(new Set(rows.map((r) => r.team)));
+      for (const team of teams) {
+        await tx.teamPrice.upsert({
+          where: { productId_team: { productId: id, team } },
+          update: {},
+          create: { productId: id, team },
+        });
+      }
+    },
+    { timeout: 30_000, maxWait: 5_000 },
+  );
 
   return NextResponse.json({ added: rows.length }, { status: 201 });
 }
