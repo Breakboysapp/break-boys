@@ -9,18 +9,41 @@
  * waiting for the round-trip.
  */
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function FavoriteButton({
   productId,
   initialFavorited,
 }: {
   productId: string;
-  initialFavorited: boolean;
+  /** Optional. When omitted, the component fetches its own state on
+   *  mount via GET /api/products/[id]/favorite. Lets the parent page
+   *  render via ISR without having to per-request a per-user query. */
+  initialFavorited?: boolean;
 }) {
   const router = useRouter();
-  const [favorited, setFavorited] = useState(initialFavorited);
+  const [favorited, setFavorited] = useState(initialFavorited ?? false);
   const [pending, setPending] = useState(false);
+
+  // When parent doesn't pass an initial state (ISR-cached page),
+  // fetch it once on mount. Renders a momentarily-unfilled heart
+  // until the response lands — typically 50-100ms, barely visible.
+  useEffect(() => {
+    if (initialFavorited !== undefined) return;
+    let cancelled = false;
+    fetch(`/api/products/${productId}/favorite`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setFavorited(Boolean(data.favorited));
+      })
+      .catch(() => {
+        /* keep default false on failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, initialFavorited]);
 
   async function toggle(e: React.MouseEvent) {
     // The button sits inside a card-y product hero; click should not

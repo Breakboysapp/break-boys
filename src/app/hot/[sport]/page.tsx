@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import {
+  getCardsLightForSport,
+  getTrendingSnapshotsForSport,
+} from "@/lib/cached-queries";
 import { sportsFromPath } from "@/lib/product-path";
 import { remapInternationalAnime } from "@/lib/international-anime";
 import { playerSlug } from "@/lib/player-slug";
@@ -29,15 +32,7 @@ export default async function HotSportPage({
   // PlayerTrendingSnapshot (populated by the daily refresh-trending
   // cron). The cards lookup is just to display each player's team
   // + rookie tag alongside the trending row.
-  const cards = await prisma.card.findMany({
-    where: { product: { sport: { in: sportCandidates } } },
-    select: {
-      playerName: true,
-      team: true,
-      variation: true,
-      cardNumber: true,
-    },
-  });
+  const cards = await getCardsLightForSport(sportCandidates);
   if (cards.length === 0) notFound();
 
   // Apply the same anime remap we use on the product page so
@@ -74,11 +69,7 @@ export default async function HotSportPage({
   // The refresh-trending cron writes here daily so the page render is
   // a single indexed Postgres query — no external API in the request
   // path, no rate-limit risk, no cold-load wait.
-  const snapshots = await prisma.playerTrendingSnapshot.findMany({
-    where: { sport: { in: sportCandidates } },
-    orderBy: { last30dCents: "desc" },
-    take: 200,
-  });
+  const snapshots = await getTrendingSnapshotsForSport(sportCandidates);
   const lastCapturedAt = snapshots.reduce<Date | null>(
     (latest, s) =>
       latest == null || s.capturedAt > latest ? s.capturedAt : latest,
