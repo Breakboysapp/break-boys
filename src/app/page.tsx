@@ -1,9 +1,14 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { getAllProductsLight } from "@/lib/cached-queries";
 import SearchFilters from "@/components/SearchFilters";
 import SortSelector, { type SortOption } from "@/components/SortSelector";
 import { extractYears, inferReleaseTime, uniqueSorted } from "@/lib/search";
 
+// Render dynamic, but the underlying product list query is cached
+// via unstable_cache below. That way the build doesn't try to
+// pre-render against the DB (which would fail if the DB is
+// quota-blocked at build time), and at request time we still
+// only hit Postgres once an hour per cache TTL.
 export const dynamic = "force-dynamic";
 
 // Sort labels are written to read sensibly on BOTH tabs:
@@ -65,12 +70,10 @@ export default async function HomePage({
   const sort = params.sort ?? "release-desc";
   const tab: Tab = params.tab === "coming-soon" ? "coming-soon" : "active";
 
-  // Pull all products — small set in MVP. Filter in memory so search can be
-  // case-insensitive across SQLite/Postgres without provider-specific syntax.
-  const all = await prisma.product.findMany({
-    orderBy: [{ releaseDate: "desc" }, { createdAt: "desc" }],
-    include: { _count: { select: { cards: true } } },
-  });
+  // Cached product list — same shape as before but read from
+  // Next.js's data cache (1h TTL) instead of Postgres on every
+  // request. See src/lib/cached-queries.ts.
+  const all = await getAllProductsLight();
 
   // Per-sport product counts for the sport quick-jump row. Uses the
   // full catalog (active + coming-soon) so the displayed numbers match

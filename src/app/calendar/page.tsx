@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { getAllProductsLight } from "@/lib/cached-queries";
 import { listSources } from "@/lib/sources";
 import SearchFilters from "@/components/SearchFilters";
 import { extractYears, uniqueSorted } from "@/lib/search";
@@ -23,11 +23,15 @@ export default async function CalendarPage({
   const mfr = params.mfr ?? null;
   const sport = params.sport ?? null;
 
-  // Pull all products and filter in memory — same approach as the home page
-  // for case-insensitive search compatibility across SQLite/Postgres.
-  const all = await prisma.product.findMany({
-    orderBy: [{ releaseDate: "asc" }, { name: "asc" }],
-    include: { _count: { select: { cards: true } } },
+  // Reuse the same cached product list as the homepage. Calendar
+  // wants chronological order (oldest first) so re-sort the cached
+  // result in memory.
+  const cached = await getAllProductsLight();
+  const all = [...cached].sort((a, b) => {
+    const ad = a.releaseDate?.getTime() ?? 0;
+    const bd = b.releaseDate?.getTime() ?? 0;
+    if (ad !== bd) return ad - bd;
+    return a.name.localeCompare(b.name);
   });
 
   const years = uniqueSorted(all.flatMap((p) => extractYears(p.name)));
