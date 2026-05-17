@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export async function PATCH(
@@ -33,6 +34,11 @@ export async function PATCH(
         : {}),
     },
   });
+
+  // Bust both the per-product cache slot and the global product
+  // list so name / status / box-price changes appear immediately.
+  revalidateTag(`product-${id}`);
+  revalidateTag("products");
 
   return NextResponse.json(updated);
 }

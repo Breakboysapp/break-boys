@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { detectManufacturer } from "@/lib/manufacturer";
 import { defaultFormatsForProduct } from "@/lib/product-formats-defaults";
@@ -60,6 +61,10 @@ export async function POST(request: Request) {
       skipDuplicates: true,
     });
   }
+
+  // New product → bust the global product list cache so it
+  // appears on the homepage / calendar without a 1h wait.
+  revalidateTag("products");
 
   return NextResponse.json(product, { status: 201 });
 }

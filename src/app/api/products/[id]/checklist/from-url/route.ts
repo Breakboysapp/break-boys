@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { pickSource } from "@/lib/sources/checklist";
 import {
@@ -85,6 +86,12 @@ export async function POST(
     },
     { timeout: 30_000, maxWait: 5_000 },
   );
+
+  // Bust the cached product detail + global product list so the
+  // newly-imported cards show up immediately instead of waiting
+  // for the 1-hour TTL.
+  revalidateTag(`product-${id}`);
+  revalidateTag("products");
 
   return NextResponse.json(
     {
