@@ -14,6 +14,25 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CURRENT_USER_ID } from "@/lib/user";
 
+// Per-user state read so the FavoriteButton can fetch its own
+// initial state on mount. Lets the product page stay cached (ISR)
+// instead of dropping to force-dynamic just to render a single
+// boolean.
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const fav = await prisma.userFavoriteProduct.findUnique({
+    where: { userId_productId: { userId: CURRENT_USER_ID, productId: id } },
+    select: { id: true },
+  });
+  return NextResponse.json(
+    { favorited: fav != null },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },

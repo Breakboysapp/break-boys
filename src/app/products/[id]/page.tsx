@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import {
+  getCardSnapshotsForProduct,
+  getCrossProductPricedCards,
+  getProductFullById,
+} from "@/lib/cached-queries";
 import {
   PRICING_BLEND_ALPHA,
   computeBreakdown,
@@ -14,7 +18,6 @@ import {
 } from "@/lib/international-anime";
 import { rollupChasePlayers } from "@/lib/chase-rollup";
 import { buildTeamExpandedRows } from "@/lib/team-expanded-rollup";
-import { CURRENT_USER_ID } from "@/lib/user";
 import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
 import FavoriteButton from "./FavoriteButton";
@@ -28,48 +31,17 @@ export default async function ProductPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const product = await prisma.product.findUnique({
-    where: { id },
-    include: {
-      teamPrices: { orderBy: { team: "asc" } },
-      cards: {
-        select: {
-          id: true,
-          cardNumber: true,
-          team: true,
-          playerName: true,
-          variation: true,
-          marketValueCents: true,
-          // PriceCharting per-card data — feeds the Chase scoreboard.
-          // All optional; products that haven't been imported through
-          // scripts/import-pricecharting-set.ts have these as null and
-          // the Chase toggle stays hidden.
-          ungradedCents: true,
-          psa10Cents: true,
-          psa9Cents: true,
-          printRun: true,
-          imageUrl: true,
-          popG10: true,
-          popTotal: true,
-        },
-      },
-      formats: {
-        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-      },
-      _count: { select: { cards: true } },
-    },
-  });
+  // Cached full-product query — same shape as before but read via
+  // unstable_cache (1h TTL). Each product gets its own cache slot
+  // keyed on id, busted by mutations via revalidateTag('product-<id>').
+  const product = await getProductFullById(id);
   if (!product) notFound();
 
-  // Favorited state for the heart toggle in the hero. One small query;
-  // the Product page is force-dynamic anyway so per-request is fine.
-  const favorite = await prisma.userFavoriteProduct.findUnique({
-    where: {
-      userId_productId: { userId: CURRENT_USER_ID, productId: product.id },
-    },
-    select: { id: true },
-  });
-  const isFavorited = favorite != null;
+  // Per-user favorited state moved to the client (<FavoriteButton/>
+  // fetches its own state on mount via /api/products/[id]/favorite).
+  // That keeps THIS page cacheable. The momentary unfilled-heart
+  // before the client fetch lands is intentional and barely
+  // perceptible (~50-100ms in practice).
 
   // Remap "Anime"-style insert cards that placed superstars on their
   // NATIONAL team affiliation (Cal Raleigh / USA, Ohtani / Japan, Soto
@@ -107,21 +79,10 @@ export default async function ProductPage({
   // Mahomes on a football product page. Stops cross-sport scaling
   // weirdness without per-sport configuration; we just trust the
   // Product.sport tag we already have on every product.
-  const playersGlobalCards = await prisma.card.findMany({
-    where: {
-      playerName: { in: playersInProduct },
-      product: { sport: product.sport },
-      OR: [
-        { psa10Cents: { gt: 0 } },
-        { ungradedCents: { gt: 0 } },
-      ],
-    },
-    select: {
-      playerName: true,
-      psa10Cents: true,
-      ungradedCents: true,
-    },
-  });
+  const playersGlobalCards = await getCrossProductPricedCards(
+    product.sport,
+    playersInProduct,
+  );
   // Build a synthetic "card list" that mirrors product.cards but with
   // the player's TEAM from this product (so team aggregation still maps
   // correctly) and prices coming from the cross-product feed. Each
@@ -200,16 +161,7 @@ export default async function ProductPage({
   // documented price; baselines accumulate naturally over time.
   // Empty until we have ≥2 snapshots per card; column fills in as
   // the cron runs each morning.
-  const cardSnapshots = await prisma.cardPriceSnapshot.findMany({
-    where: { card: { productId: product.id } },
-    select: {
-      cardId: true,
-      capturedAt: true,
-      psa10Cents: true,
-      ungradedCents: true,
-    },
-    orderBy: { capturedAt: "asc" },
-  });
+  const cardSnapshots = await getCardSnapshotsForProduct(product.id);
   const earliestSnapshot = new Map<
     string,
     {
@@ -504,10 +456,7 @@ export default async function ProductPage({
             stubbed to "local" until auth lands) — surfaced under the
             Favorites link in the global nav. */}
         <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
-          <FavoriteButton
-            productId={product.id}
-            initialFavorited={isFavorited}
-          />
+          <FavoriteButton productId={product.id} />
         </div>
         <Link
           href="/"
