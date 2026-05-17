@@ -22,11 +22,43 @@ import { prisma } from "@/lib/prisma";
 const ONE_HOUR = 3600;
 
 /**
+ * unstable_cache serializes its return value through Next.js's data
+ * cache, which converts Date → ISO string. Calling `.getTime()` on
+ * the deserialized result blows up because it's a string now, not a
+ * Date. This walker converts ISO-shaped strings back into Date
+ * objects so consumers see the same shape they'd see from Prisma
+ * directly. Skip Date instances (no-op) and primitives.
+ *
+ * The regex matches the ISO 8601 form Prisma + JSON.stringify
+ * produce: "2026-05-15T00:00:00.000Z" or "2026-05-15T00:00:00".
+ */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+function reviveDates<T>(value: T): T {
+  if (value == null) return value;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    return (ISO_DATE_RE.test(value) ? new Date(value) : value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => reviveDates(v)) as unknown as T;
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as object)) {
+      out[k] = reviveDates(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/**
  * Homepage / favorites / calendar all read the same product list
  * (full catalog, light shape). One cache key serves all three; tag
  * `products` so mutations can bust it.
  */
-export const getAllProductsLight = unstable_cache(
+const _getAllProductsLightRaw = unstable_cache(
   async () => {
     return prisma.product.findMany({
       orderBy: [{ releaseDate: "desc" }, { createdAt: "desc" }],
@@ -36,6 +68,9 @@ export const getAllProductsLight = unstable_cache(
   ["all-products-light"],
   { revalidate: ONE_HOUR, tags: ["products"] },
 );
+export async function getAllProductsLight() {
+  return reviveDates(await _getAllProductsLightRaw());
+}
 
 /**
  * Product detail page — the big one. Product + all cards + team
@@ -46,8 +81,8 @@ export const getAllProductsLight = unstable_cache(
  * cache slot. Tagged with both `product-<id>` (for targeted bust)
  * and `products` (for global bust).
  */
-export const getProductFullById = (id: string) =>
-  unstable_cache(
+export async function getProductFullById(id: string) {
+  const cached = await unstable_cache(
     async () => {
       return prisma.product.findUnique({
         where: { id },
@@ -80,6 +115,8 @@ export const getProductFullById = (id: string) =>
     ["product-full", id],
     { revalidate: ONE_HOUR, tags: ["products", `product-${id}`] },
   )();
+  return reviveDates(cached);
+}
 
 /**
  * Cross-product player price query — used by the product page to
@@ -91,12 +128,12 @@ export const getProductFullById = (id: string) =>
  * so the same product re-renders consistently while distinct
  * product calls don't collide.
  */
-export const getCrossProductPricedCards = (
+export async function getCrossProductPricedCards(
   sport: string,
   players: string[],
-) => {
+) {
   const fingerprint = [...players].sort().join("|").slice(0, 256);
-  return unstable_cache(
+  const cached = await unstable_cache(
     async () => {
       return prisma.card.findMany({
         where: {
@@ -117,15 +154,16 @@ export const getCrossProductPricedCards = (
     ["cross-product-priced", sport, fingerprint],
     { revalidate: ONE_HOUR, tags: ["products", `cross-${sport}`] },
   )();
-};
+  return reviveDates(cached);
+}
 
 /**
  * Card price snapshots for a product — feeds the per-player Trend
  * column. Snapshot rows only grow daily so an hour of cache is
  * fine.
  */
-export const getCardSnapshotsForProduct = (productId: string) =>
-  unstable_cache(
+export async function getCardSnapshotsForProduct(productId: string) {
+  const cached = await unstable_cache(
     async () => {
       return prisma.cardPriceSnapshot.findMany({
         where: { card: { productId } },
@@ -141,14 +179,18 @@ export const getCardSnapshotsForProduct = (productId: string) =>
     ["card-snapshots", productId],
     { revalidate: ONE_HOUR, tags: ["snapshots", `product-${productId}`] },
   )();
+  return reviveDates(cached);
+}
 
 /**
  * Trending snapshots for a sport — backs /hot and /chase. Snapshot
  * data only refreshes nightly via the refresh-trending cron, so an
  * hour of cache is safe.
  */
-export const getTrendingSnapshotsForSport = (sportCandidates: string[]) =>
-  unstable_cache(
+export async function getTrendingSnapshotsForSport(
+  sportCandidates: string[],
+) {
+  const cached = await unstable_cache(
     async () => {
       return prisma.playerTrendingSnapshot.findMany({
         where: { sport: { in: sportCandidates } },
@@ -159,14 +201,19 @@ export const getTrendingSnapshotsForSport = (sportCandidates: string[]) =>
     ["trending-snapshots", sportCandidates.join("|")],
     { revalidate: ONE_HOUR, tags: ["trending"] },
   )();
+  return reviveDates(cached);
+}
 
 /**
  * Light card list for a sport — used by /hot/[sport] to resolve a
  * player's primary team. Returns just team + playerName + variation
  * + cardNumber, no price fields.
  */
-export const getCardsLightForSport = (sportCandidates: string[]) =>
-  unstable_cache(
+export async function getCardsLightForSport(sportCandidates: string[]) {
+  // No Date fields on this projection so reviveDates is a no-op,
+  // but use it anyway for consistency — cheap on a string-only
+  // record array.
+  const cached = await unstable_cache(
     async () => {
       return prisma.card.findMany({
         where: { product: { sport: { in: sportCandidates } } },
@@ -181,3 +228,5 @@ export const getCardsLightForSport = (sportCandidates: string[]) =>
     ["cards-light-by-sport", sportCandidates.join("|")],
     { revalidate: ONE_HOUR, tags: ["products"] },
   )();
+  return reviveDates(cached);
+}
