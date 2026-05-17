@@ -101,16 +101,27 @@ export default async function HomePage({
   // products that would otherwise get caught in Active by the
   // cards > 0 check.
   //
-  // Released-but-empty products (cards = 0 AND release in the past) are
-  // a data gap — Beckett hasn't posted the xlsx yet, our seed scripts
-  // haven't run, etc. They're invisible to public users since there's
-  // nothing actionable on those tiles, but the backend audit script
-  // (scripts/audit-coming-soon.ts) still lists them so we know what
-  // needs backfilling.
+  // Released-but-empty products (cards = 0 AND release in the past)
+  // are a data gap — Beckett hasn't posted the xlsx yet, our seed
+  // scripts haven't run, etc. Old gaps (stale products months out
+  // of date) stay invisible to public users. FRESH gaps (released
+  // within the last 14 days) surface in Coming Soon so a brand-new
+  // drop like 2025-26 Topps NBA Hoops doesn't fall into the cracks
+  // while we wait for its checklist to land.
   const now = new Date();
+  const RECENT_RELEASE_WINDOW_DAYS = 14;
+  const recentCutoff = new Date(
+    now.getTime() - RECENT_RELEASE_WINDOW_DAYS * 86_400_000,
+  );
   const isUpcoming = (p: (typeof all)[number]) =>
-    (p.releaseDate == null || p.releaseDate > now) &&
-    (p.releaseStatus === "announced" || p._count.cards === 0);
+    // Genuinely upcoming: future / unknown date + announced or empty.
+    ((p.releaseDate == null || p.releaseDate > now) &&
+      (p.releaseStatus === "announced" || p._count.cards === 0)) ||
+    // Just-released but checklist still missing: surface here too so
+    // it doesn't go dark between drop day and Beckett xlsx publish.
+    (p._count.cards === 0 &&
+      p.releaseDate != null &&
+      p.releaseDate >= recentCutoff);
   const comingSoonProducts = all.filter(isUpcoming);
   const activeProducts = all.filter(
     (p) => p._count.cards > 0 && !isUpcoming(p),

@@ -19,6 +19,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { computeTrendingMap } from "@/lib/cardhedger-trending";
 
@@ -175,6 +176,10 @@ export async function GET(req: Request) {
       error: lastError,
     });
   }
+
+  // Bust the trending caches so /hot and /chase pick up fresh
+  // snapshots within seconds instead of waiting on the 1-hour TTL.
+  revalidateTag("trending");
 
   return NextResponse.json({
     ok: true,

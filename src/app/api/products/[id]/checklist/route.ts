@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { parseChecklist } from "@/lib/csv";
 import {
@@ -69,6 +70,11 @@ export async function POST(
     },
     { timeout: 30_000, maxWait: 5_000 },
   );
+
+  // Bust the cached product detail + global product list so the
+  // import surfaces immediately.
+  revalidateTag(`product-${id}`);
+  revalidateTag("products");
 
   return NextResponse.json({ added: rows.length }, { status: 201 });
 }
