@@ -492,16 +492,6 @@ export default async function ProductPage({
           <span>
             {product._count.cards} {product._count.cards === 1 ? "card" : "cards"}
           </span>
-          {overallGemRate != null && (
-            <span
-              title={`Σ ${popG10Sum.toLocaleString()} PSA 10 / Σ ${popTotalSum.toLocaleString()} graded across all cards with pop data`}
-            >
-              Gem rate{" "}
-              <span className="font-bold text-ink">
-                {(overallGemRate * 100).toFixed(1)}%
-              </span>
-            </span>
-          )}
         </div>
 
         {hasTeams && !isComingSoon && (
@@ -521,6 +511,46 @@ export default async function ProductPage({
           </div>
         )}
       </div>
+
+      {/* Overall gem rate — Σ popG10 / Σ popTotal across every card in
+          the product that has pop data. One canonical "how often does
+          this product yield a PSA 10?" number, surfaced prominently so
+          you don't have to drill into the per-player Chase Scoreboard
+          to read it. Silently absent on products without pop data
+          (mostly unreleased / not-yet-backfilled sets); the slot
+          collapses cleanly without leaving a "—%" gap. */}
+      {overallGemRate != null && (
+        <div
+          className="rounded-2xl border border-slate-200 bg-white p-5"
+          title={`${popG10Sum.toLocaleString()} PSA 10s out of ${popTotalSum.toLocaleString()} graded cards across every card in this product with pop data`}
+        >
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+                Overall gem rate
+              </div>
+              <div className="mt-1 text-4xl font-extrabold tracking-tight-3 text-ink sm:text-5xl">
+                {(overallGemRate * 100).toFixed(1)}%
+              </div>
+            </div>
+            <div className="text-right text-[11px] leading-snug text-slate-500">
+              <div>
+                <span className="font-bold text-ink">
+                  {popG10Sum.toLocaleString()}
+                </span>{" "}
+                PSA 10s
+              </div>
+              <div>
+                of{" "}
+                <span className="font-bold text-ink">
+                  {popTotalSum.toLocaleString()}
+                </span>{" "}
+                graded cards
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Box format selector — compact native <select> dropdown.
           Pre-seeded for every product based on its name pattern
