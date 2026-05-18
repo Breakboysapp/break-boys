@@ -413,6 +413,21 @@ export default async function ProductPage({
     (c) => c.psa10Cents != null && c.psa10Cents > 0,
   );
 
+  // Product-wide gem rate — Σ popG10 / Σ popTotal across every card with
+  // pop data. Weighted by total graded count, so a card with 5,000 graded
+  // matters more than a 1-card sample. Null when no card has pop data
+  // yet (chip just doesn't render). Same math the per-player Chase
+  // Scoreboard uses, summed one level up.
+  let popG10Sum = 0;
+  let popTotalSum = 0;
+  for (const c of cards) {
+    if (c.popTotal != null && c.popTotal > 0) {
+      popG10Sum += c.popG10 ?? 0;
+      popTotalSum += c.popTotal;
+    }
+  }
+  const overallGemRate = popTotalSum > 0 ? popG10Sum / popTotalSum : null;
+
   // Pre-compute the team-expanded player sub-rows server-side. Each
   // entry is a small per-team list keyed by the team name; replaces
   // the prior approach of shipping the entire 1,200+ card array to
@@ -477,6 +492,16 @@ export default async function ProductPage({
           <span>
             {product._count.cards} {product._count.cards === 1 ? "card" : "cards"}
           </span>
+          {overallGemRate != null && (
+            <span
+              title={`Σ ${popG10Sum.toLocaleString()} PSA 10 / Σ ${popTotalSum.toLocaleString()} graded across all cards with pop data`}
+            >
+              Gem rate{" "}
+              <span className="font-bold text-ink">
+                {(overallGemRate * 100).toFixed(1)}%
+              </span>
+            </span>
+          )}
         </div>
 
         {hasTeams && !isComingSoon && (
