@@ -123,12 +123,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Fetch every page of a console listing, returning the flat list of cards.
  * Paginates on `cursor`; PC returns ~150 per page until the cursor stops
  * advancing. Bails after MAX_PAGES as a safety net for unbounded loops.
+ *
+ * PC sits behind Cloudflare and routinely returns transient 5xx (most
+ * commonly 524 gateway timeout) on individual pages of a multi-page
+ * listing. The set itself is healthy — the next request usually
+ * succeeds. We retry up to RETRY_MAX_5XX times with exponential
+ * backoff on any 5xx; non-5xx errors still throw immediately so a
+ * real misconfig (404, 403) fails loud.
  */
 export async function fetchConsoleProducts(slug: string): Promise<{
   category: string;
   products: PCConsoleProduct[];
 }> {
   const MAX_PAGES = 50; // 50 × 150 = 7,500 cards. No real set comes close.
+  const RETRY_MAX_5XX = 5;
   const all: PCConsoleProduct[] = [];
   let cursor: string | null = null;
   let category = "";
@@ -136,11 +144,28 @@ export async function fetchConsoleProducts(slug: string): Promise<{
     const url = cursor
       ? `${PC_BASE}/api/console/${slug}?cursor=${encodeURIComponent(cursor)}`
       : `${PC_BASE}/api/console/${slug}`;
-    const res = await globalThis.fetch(url, {
-      headers: { "User-Agent": UA, Accept: "application/json" },
-    });
-    if (!res.ok) {
-      throw new Error(`fetchConsoleProducts: ${res.status} on ${url}`);
+    let res: Response | null = null;
+    let lastStatus = 0;
+    for (let attempt = 0; attempt <= RETRY_MAX_5XX; attempt++) {
+      res = await globalThis.fetch(url, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+      });
+      if (res.ok) break;
+      lastStatus = res.status;
+      // 4xx is a real error (404 wrong slug, 403 bot-walled) — fail loud.
+      if (res.status < 500) {
+        throw new Error(`fetchConsoleProducts: ${res.status} on ${url}`);
+      }
+      // 5xx: transient. Exponential backoff: 1s, 2s, 4s, 8s, 16s.
+      if (attempt === RETRY_MAX_5XX) {
+        throw new Error(
+          `fetchConsoleProducts: ${res.status} on ${url} after ${RETRY_MAX_5XX + 1} attempts`,
+        );
+      }
+      await sleep(1000 * 2 ** attempt);
+    }
+    if (!res || !res.ok) {
+      throw new Error(`fetchConsoleProducts: ${lastStatus} on ${url}`);
     }
     const json = (await res.json()) as {
       category?: string;
