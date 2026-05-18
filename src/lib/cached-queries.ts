@@ -209,6 +209,68 @@ export async function getTrendingSnapshotsForSport(
  * player's primary team. Returns just team + playerName + variation
  * + cardNumber, no price fields.
  */
+/**
+ * Catalog-wide gem-rate roll-up — one row per product with summed
+ * pop counts across all its cards. Powers /insights/gem-rates.
+ *
+ * Two queries because Prisma's groupBy returns aggregates only; we
+ * need the product metadata (name, sport, manufacturer, releaseDate,
+ * total card count) joined in. Cheaper than a raw SQL join and the
+ * full result is small (one row per product, ~80 products today).
+ *
+ * Filtered to products with non-zero popTotal — unreleased products
+ * and ones with no graded data yet contribute nothing meaningful to
+ * a "gem rate" comparison.
+ */
+export async function getProductGemRates() {
+  const cached = await unstable_cache(
+    async () => {
+      const aggs = await prisma.card.groupBy({
+        by: ["productId"],
+        _sum: { popG10: true, popTotal: true },
+        _count: { _all: true },
+        where: { popTotal: { gt: 0 } },
+      });
+      if (aggs.length === 0) return [];
+      const productIds = aggs.map((a) => a.productId);
+      const products = await prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: {
+          id: true,
+          name: true,
+          sport: true,
+          manufacturer: true,
+          releaseDate: true,
+          _count: { select: { cards: true } },
+        },
+      });
+      const byId = new Map(products.map((p) => [p.id, p]));
+      return aggs.flatMap((a) => {
+        const p = byId.get(a.productId);
+        if (!p) return [];
+        const popG10 = a._sum.popG10 ?? 0;
+        const popTotal = a._sum.popTotal ?? 0;
+        return [
+          {
+            productId: a.productId,
+            name: p.name,
+            sport: p.sport,
+            manufacturer: p.manufacturer,
+            releaseDate: p.releaseDate,
+            cardsWithPop: a._count._all,
+            totalCards: p._count.cards,
+            popG10,
+            popTotal,
+          },
+        ];
+      });
+    },
+    ["product-gem-rates"],
+    { revalidate: ONE_HOUR, tags: ["products", "gem-rates"] },
+  )();
+  return reviveDates(cached);
+}
+
 export async function getCardsLightForSport(sportCandidates: string[]) {
   // No Date fields on this projection so reviveDates is a no-op,
   // but use it anyway for consistency — cheap on a string-only
