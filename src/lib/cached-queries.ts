@@ -205,6 +205,145 @@ export async function getTrendingSnapshotsForSport(
 }
 
 /**
+ * Sleeper Index — the headline query for /prospects.
+ *
+ * Joins the published ProspectRanking universe against each player's
+ * card market (every priced card across every product in the same
+ * sport). Computes quality + market + sleeper score in app code so
+ * the formula stays readable and easy to tune. Returns one row per
+ * ranked prospect, sorted by sleeper score desc.
+ *
+ *   Quality = 101 − rank             (rank 1 → 100, rank 100 → 1)
+ *   Market  = normalize(
+ *               log(top_psa10 + 1) * 0.6 + log(median_priced + 1) * 0.4
+ *             )                        (0-100, top prospect = 100)
+ *   Sleeper = Quality / Market         (higher = more undervalued)
+ *
+ * "Effective" price per card = max(psa10, raw × 6) — matches the
+ * existing chase-rollup math so a card with a known raw comp but no
+ * graded comp still contributes to the player's market signal.
+ *
+ * Cached 1h, tagged 'prospects' + 'products' (since the market half
+ * of the score reads from card prices, mutations on either side
+ * should bust this cache).
+ */
+const _getProspectSleeperIndexRaw = unstable_cache(
+  async (sport: string) => {
+    const rankings = await prisma.prospectRanking.findMany({
+      where: { sport },
+      orderBy: { rank: "asc" },
+    });
+    if (rankings.length === 0) return [];
+
+    // Single read of every priced card in the sport, scoped to the
+    // players on the ranking list. Avoids fetching the whole Card
+    // table on big sports.
+    const normalizedNames = rankings.map((r) => r.normalizedName);
+    const pricedCards = await prisma.card.findMany({
+      where: {
+        product: { sport },
+        OR: [
+          { psa10Cents: { gt: 0 } },
+          { ungradedCents: { gt: 0 } },
+        ],
+      },
+      select: {
+        playerName: true,
+        psa10Cents: true,
+        ungradedCents: true,
+      },
+    });
+
+    // Bucket cards by normalized player name. normalizeKey() is the
+    // same canonicalizer the importer uses on writes, so the DB and
+    // the ranking list join cleanly even when one source spells the
+    // player "Junior Caminero" and the other "Junior Caminero".
+    // Note: normalizeKey is duplicated here vs. importing the helper
+    // because cached-queries.ts is intentionally framework-free —
+    // the helper file also has a heavier DB-dependent build function
+    // we don't need.
+    const norm = (s: string) =>
+      s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const RAW_TO_GRADED = 6;
+    const eff = (psa: number | null, raw: number | null) =>
+      Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
+    const median = (a: number[]) => {
+      if (a.length === 0) return 0;
+      const s = [...a].sort((x, y) => x - y);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+    const byPlayer = new Map<string, number[]>();
+    for (const c of pricedCards) {
+      const v = eff(c.psa10Cents, c.ungradedCents);
+      if (v <= 0) continue;
+      const k = norm(c.playerName);
+      const arr = byPlayer.get(k) ?? [];
+      arr.push(v);
+      byPlayer.set(k, arr);
+    }
+
+    // Per-player market blend before normalization. Direct port of the
+    // chase-rollup formula — log compression so a $50k chase card
+    // doesn't fully dominate over depth + median signal.
+    const rawBlend = new Map<string, number>();
+    for (const [k, prices] of byPlayer) {
+      const top = Math.max(...prices);
+      const med = median(prices);
+      rawBlend.set(k, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
+    }
+    const maxBlend = Math.max(0, ...rawBlend.values());
+
+    // Final per-prospect row. Quality from rank, market normalized
+    // 0-100, sleeper score from the ratio. Cards-without-market get
+    // market = null (rendered as "—" + sleeper = null on the UI side)
+    // rather than market = 0 — dividing by zero would push every no-
+    // market prospect to Infinity and crowd out the actual sleepers.
+    const rows = rankings.map((r) => {
+      const blend = rawBlend.get(r.normalizedName) ?? 0;
+      const market =
+        maxBlend > 0 && blend > 0
+          ? Math.max(1, Math.round((blend / maxBlend) * 100))
+          : null;
+      const quality = Math.max(1, 101 - r.rank);
+      const sleeper =
+        market != null && market > 0 ? quality / market : null;
+      return {
+        rank: r.rank,
+        playerName: r.playerName,
+        normalizedName: r.normalizedName,
+        position: r.position,
+        org: r.org,
+        level: r.level,
+        age: r.age,
+        source: r.source,
+        capturedAt: r.capturedAt,
+        quality,
+        market,
+        sleeper,
+        pricedCardCount: byPlayer.get(r.normalizedName)?.length ?? 0,
+      };
+    });
+
+    // Sort by sleeper score desc, treating null sleeper (no card market)
+    // as last so the "actual sleeper" view leads with quality+market
+    // matches. Tie-break by rank.
+    rows.sort((a, b) => {
+      const av = a.sleeper ?? -Infinity;
+      const bv = b.sleeper ?? -Infinity;
+      if (av !== bv) return bv - av;
+      return a.rank - b.rank;
+    });
+    return rows;
+  },
+  ["prospect-sleeper-index"],
+  { revalidate: ONE_HOUR, tags: ["prospects", "products"] },
+);
+export async function getProspectSleeperIndex(sport: string = "MLB") {
+  return reviveDates(await _getProspectSleeperIndexRaw(sport));
+}
+
+/**
  * Light card list for a sport — used by /hot/[sport] to resolve a
  * player's primary team. Returns just team + playerName + variation
  * + cardNumber, no price fields.
