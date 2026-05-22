@@ -14,9 +14,8 @@ import SleeperTable from "./SleeperTable";
  *   Quality = 101 − rank      (rank 1 = 100, rank 100 = 1)
  *   Market  = log-blend of priced cards, normalized 0-100
  *
- * v1 reads from a hand-pasted ranking list (see /admin/prospects);
- * future iteration pulls from MLB Pipeline / FanGraphs / Baseball
- * America via paste-from-page flows or scrape.
+ * Ranking source is the MLB Pipeline Top 100, scraped weekly by
+ * /api/cron/refresh-prospects (and on-demand from /admin/prospects).
  *
  * No paywall yet — the auth + Stripe layer ships once the math is
  * validated against a real list. Per the scope doc, eventually the
@@ -28,9 +27,9 @@ export default async function ProspectsPage() {
   const rows = await getProspectSleeperIndex("MLB");
 
   // Header KPIs surface the "is there even any data here?" answer at a
-  // glance — until someone pastes a list via /admin/prospects, every
-  // number is zero and the user lands on a copy-driven empty state
-  // pointing them at the admin page.
+  // glance — until the cron runs (or someone hits Refresh on
+  // /admin/prospects), every number is zero and the user lands on
+  // a copy-driven empty state pointing them at the admin page.
   const totalRanked = rows.length;
   const withMarket = rows.filter((r) => r.market != null).length;
   const topSleeper = rows.find((r) => r.sleeper != null);
@@ -124,16 +123,15 @@ function EmptyState() {
         No prospect rankings yet
       </div>
       <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">
-        Paste a Top 100 list to seed the index. The Sleeper Score fills
-        in automatically once the list is in — quality comes from the
-        rank, market comes from the existing card prices already in the
-        DB.
+        Pulls the Top 100 from MLB Pipeline. Hit Refresh on the admin
+        page to seed it — Sleeper Scores fill in automatically once the
+        list lands.
       </p>
       <Link
         href="/admin/prospects"
         className="mt-5 inline-block rounded-md bg-ink px-5 py-2.5 text-sm font-bold uppercase tracking-tight-2 text-white hover:opacity-90"
       >
-        Paste a list →
+        Refresh from MLB →
       </Link>
     </div>
   );
