@@ -308,8 +308,14 @@ const _getProspectSleeperIndexRaw = unstable_cache(
       const quality = Math.max(1, 101 - r.rank);
       const sleeper =
         market != null && market > 0 ? quality / market : null;
+      // movement: positive = climbed (lower rank #), negative = fell.
+      // null = no prior snapshot (first appearance on the list).
+      const movement =
+        r.previousRank != null ? r.previousRank - r.rank : null;
       return {
         rank: r.rank,
+        previousRank: r.previousRank,
+        movement,
         playerName: r.playerName,
         normalizedName: r.normalizedName,
         position: r.position,

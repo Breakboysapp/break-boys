@@ -19,9 +19,9 @@
  *      → player ref → Person → activeRoster ref → Team → sport ref →
  *      Sport. That gives rank/name/position/org/level/age in one pass.
  *
- * Returns the parsed roster — does not touch the DB. Caller (the
- * /api/admin/prospects refresh route + the weekly cron) handles
- * upsert + revalidation.
+ * Returns the parsed roster — does not touch the DB. Callers
+ * (the weekly cron and /prospects' inline self-seed) handle the
+ * wipe + insert + revalidation.
  */
 
 const PIPELINE_URL = "https://www.mlb.com/milb/prospects";

@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 
 export type SleeperRow = {
   rank: number;
+  previousRank: number | null;
+  movement: number | null;
   playerName: string;
   normalizedName: string;
   position: string | null;
@@ -18,7 +20,8 @@ export type SleeperRow = {
   pricedCardCount: number;
 };
 
-type SortKey = "sleeper" | "rank" | "quality" | "market" | "name";
+type SortKey = "sleeper" | "rank" | "quality" | "market" | "name" | "movement";
+type View = "all" | "risers" | "fallers" | "new";
 
 const POSITION_GROUPS: Array<{ label: string; matches: RegExp | null }> = [
   { label: "All", matches: null },
@@ -26,16 +29,47 @@ const POSITION_GROUPS: Array<{ label: string; matches: RegExp | null }> = [
   { label: "Pitchers", matches: /^(RHP|LHP|SP|RP|P)$/i },
 ];
 
+const VIEW_TABS: Array<{
+  key: View;
+  label: string;
+  filter: (r: SleeperRow) => boolean;
+  defaultSort: SortKey;
+}> = [
+  { key: "all", label: "All", filter: () => true, defaultSort: "sleeper" },
+  {
+    key: "risers",
+    label: "Risers",
+    filter: (r) => r.movement != null && r.movement > 0,
+    defaultSort: "movement",
+  },
+  {
+    key: "fallers",
+    label: "Fallers",
+    filter: (r) => r.movement != null && r.movement < 0,
+    defaultSort: "movement",
+  },
+  {
+    key: "new",
+    label: "New",
+    filter: (r) => r.previousRank == null,
+    defaultSort: "rank",
+  },
+];
+
 export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
+  const [view, setView] = useState<View>("all");
   const [sort, setSort] = useState<SortKey>("sleeper");
   const [query, setQuery] = useState("");
   const [positionGroup, setPositionGroup] = useState<string>("All");
   const [hideNoMarket, setHideNoMarket] = useState(false);
 
+  const activeTab = VIEW_TABS.find((t) => t.key === view) ?? VIEW_TABS[0];
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const grp = POSITION_GROUPS.find((g) => g.label === positionGroup);
     return rows.filter((r) => {
+      if (!activeTab.filter(r)) return false;
       if (q && !r.playerName.toLowerCase().includes(q)) return false;
       if (grp?.matches && (!r.position || !grp.matches.test(r.position))) {
         return false;
@@ -43,7 +77,7 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
       if (hideNoMarket && r.market == null) return false;
       return true;
     });
-  }, [rows, query, positionGroup, hideNoMarket]);
+  }, [rows, query, positionGroup, hideNoMarket, activeTab]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -65,6 +99,15 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
           if (av !== bv) return bv - av;
           return a.rank - b.rank;
         }
+        case "movement": {
+          // Climbers first; NEW (null movement) sorts after climbers
+          // but before fallers — NEW is positive news but not directly
+          // comparable to "moved up N".
+          const av = a.movement ?? (a.previousRank == null ? 0.5 : 0);
+          const bv = b.movement ?? (b.previousRank == null ? 0.5 : 0);
+          if (av !== bv) return bv - av;
+          return a.rank - b.rank;
+        }
         case "name":
           return a.playerName.localeCompare(b.playerName);
         default:
@@ -74,8 +117,42 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
     return arr;
   }, [filtered, sort]);
 
+  function switchView(v: View) {
+    setView(v);
+    const tab = VIEW_TABS.find((t) => t.key === v);
+    if (tab) setSort(tab.defaultSort);
+  }
+
   return (
     <section className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {VIEW_TABS.map((tab) => {
+          const count = rows.filter(tab.filter).length;
+          const active = tab.key === view;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => switchView(tab.key)}
+              className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-tight-2 ${
+                active
+                  ? "bg-ink text-white"
+                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {tab.label}
+              <span
+                className={`ml-1.5 inline-block tabular-nums ${
+                  active ? "text-white/70" : "text-slate-400"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
         <label className="block">
           <span className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
@@ -85,7 +162,7 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Roki…"
+            placeholder="Made…"
             className="mt-0.5 block w-56 rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-ink focus:outline-none"
           />
         </label>
@@ -128,6 +205,14 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
                 <HeaderCell current={sort} k="rank" onClick={setSort} align="left">
                   Rank
                 </HeaderCell>
+                <HeaderCell
+                  current={sort}
+                  k="movement"
+                  onClick={setSort}
+                  align="left"
+                >
+                  Move
+                </HeaderCell>
                 <HeaderCell current={sort} k="name" onClick={setSort} align="left">
                   Player
                 </HeaderCell>
@@ -155,11 +240,10 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
               {sorted.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4 py-8 text-center text-xs text-slate-400"
                   >
-                    No prospects match these filters. Try clearing the
-                    search or position chip.
+                    No prospects match these filters.
                   </td>
                 </tr>
               ) : (
@@ -170,6 +254,12 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
                   >
                     <td className="px-3 py-2 text-xs tabular-nums text-slate-500">
                       #{r.rank}
+                    </td>
+                    <td className="px-3 py-2">
+                      <MovementChip
+                        movement={r.movement}
+                        previousRank={r.previousRank}
+                      />
                     </td>
                     <td className="px-3 py-2">
                       <div className="font-semibold tracking-tight-2 text-slate-800">
@@ -233,6 +323,45 @@ export default function SleeperTable({ rows }: { rows: SleeperRow[] }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function MovementChip({
+  movement,
+  previousRank,
+}: {
+  movement: number | null;
+  previousRank: number | null;
+}) {
+  if (previousRank == null) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+        New
+      </span>
+    );
+  }
+  if (movement == null || movement === 0) {
+    return <span className="text-xs text-slate-300">—</span>;
+  }
+  if (movement > 0) {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 text-xs font-bold tabular-nums text-emerald-600"
+        title={`Previously #${previousRank}`}
+      >
+        <span aria-hidden>↑</span>
+        {movement}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 text-xs font-bold tabular-nums text-rose-600"
+      title={`Previously #${previousRank}`}
+    >
+      <span aria-hidden>↓</span>
+      {Math.abs(movement)}
+    </span>
   );
 }
 

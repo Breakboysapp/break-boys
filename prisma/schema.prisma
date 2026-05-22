@@ -312,6 +312,11 @@ model ProspectRanking {
   org            String? // affiliated MLB org, e.g. "Dodgers"
   level          String? // "AAA" | "AA" | "A+" | "A" | "ROK" | "DSL"
   age            Int?
+  // Rank from the prior snapshot, populated each refresh by looking
+  // up the player's previous (source, sport, normalizedName) row
+  // before the wipe-and-replace. Null = new entry to the list.
+  // Drives the ↑/↓/NEW movement chip on /prospects.
+  previousRank   Int?
   // Snapshot timestamp — lets us track ranking drift over time once we
   // ingest the same source twice (mid-season vs preseason lists).
   capturedAt     DateTime @default(now())

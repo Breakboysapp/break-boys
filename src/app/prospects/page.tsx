@@ -1,39 +1,55 @@
-import Link from "next/link";
 import { getProspectSleeperIndex } from "@/lib/cached-queries";
+import { refreshMlbPipelineTop100 } from "@/lib/prospects/refresh";
 import SleeperTable from "./SleeperTable";
 
 /**
  * /prospects — the Sleeper Index.
  *
- * Joins each prospect on a published Top 100 list with their current
- * card market. Surfaces the guys raking in the minors whose card
- * market hasn't caught up yet:
+ * Joins each prospect on MLB Pipeline's published Top 100 with their
+ * current card market. Surfaces the guys raking in the minors whose
+ * card market hasn't caught up yet:
  *
  *   SleeperScore = Quality / Market
  *
  *   Quality = 101 − rank      (rank 1 = 100, rank 100 = 1)
  *   Market  = log-blend of priced cards, normalized 0-100
  *
- * Ranking source is the MLB Pipeline Top 100, scraped weekly by
- * /api/cron/refresh-prospects (and on-demand from /admin/prospects).
+ * Data is owned end-to-end by the app — no manual ingestion surface.
+ * The weekly /api/cron/refresh-prospects cron keeps the list fresh,
+ * and on cold-start (empty table) we self-seed inline below so the
+ * first visit never sees an empty page.
  *
- * No paywall yet — the auth + Stripe layer ships once the math is
- * validated against a real list. Per the scope doc, eventually the
- * top 10 stays free + everything else gates.
+ * Each refresh carries forward the prior `rank` as `previousRank` so
+ * the table can render an ↑N / ↓N / NEW chip per row.
  */
 export const dynamic = "force-dynamic";
 
 export default async function ProspectsPage() {
-  const rows = await getProspectSleeperIndex("MLB");
+  let rows = await getProspectSleeperIndex("MLB");
 
-  // Header KPIs surface the "is there even any data here?" answer at a
-  // glance — until the cron runs (or someone hits Refresh on
-  // /admin/prospects), every number is zero and the user lands on
-  // a copy-driven empty state pointing them at the admin page.
+  // Self-seed on cold start. After this lands the weekly cron owns
+  // freshness; this path only fires when the table is genuinely empty
+  // (fresh deploy, freshly-wiped staging DB).
+  let seedError: string | null = null;
+  if (rows.length === 0) {
+    try {
+      await refreshMlbPipelineTop100();
+      rows = await getProspectSleeperIndex("MLB");
+    } catch (err) {
+      seedError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
   const totalRanked = rows.length;
   const withMarket = rows.filter((r) => r.market != null).length;
   const topSleeper = rows.find((r) => r.sleeper != null);
-  const source = rows[0]?.source;
+  const climbers = rows.filter(
+    (r) => r.movement != null && r.movement > 0,
+  ).length;
+  const fallers = rows.filter(
+    (r) => r.movement != null && r.movement < 0,
+  ).length;
+  const newEntries = rows.filter((r) => r.previousRank == null).length;
   const capturedAt = rows[0]?.capturedAt;
 
   return (
@@ -48,21 +64,31 @@ export default async function ProspectsPage() {
         <p className="mt-2 max-w-2xl text-sm text-slate-500">
           Top 100 prospects ranked by{" "}
           <span className="font-bold text-ink">Sleeper Score</span> —
-          quality (their place on the published list) ÷ card market
-          (how much the hobby has already priced them in). Higher = more
-          undervalued.
+          quality (their place on MLB Pipeline&apos;s published Top 100)
+          ÷ card market (how much the hobby has already priced them in).
+          Higher = more undervalued.
         </p>
+        {capturedAt && (
+          <p className="mt-2 text-[11px] text-slate-400">
+            MLB Pipeline · captured{" "}
+            {new Date(capturedAt).toLocaleDateString(undefined, {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })}
+          </p>
+        )}
       </div>
 
       {totalRanked === 0 ? (
-        <EmptyState />
+        <FetchFailedState message={seedError} />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <KpiCard label="Ranked prospects" value={totalRanked.toLocaleString()} />
             <KpiCard
-              label="With card market"
-              value={`${withMarket} / ${totalRanked}`}
+              label="Ranked"
+              value={totalRanked.toLocaleString()}
+              sub={`${withMarket} with card market`}
             />
             <KpiCard
               label="Top sleeper"
@@ -74,13 +100,16 @@ export default async function ProspectsPage() {
               }
             />
             <KpiCard
-              label="Source"
-              value={source ?? "—"}
+              label="Movement"
+              value={`↑${climbers} · ↓${fallers}`}
               sub={
-                capturedAt
-                  ? `Captured ${new Date(capturedAt).toISOString().slice(0, 10)}`
-                  : undefined
+                newEntries > 0 ? `${newEntries} new this week` : undefined
               }
+            />
+            <KpiCard
+              label="Coverage"
+              value={`${Math.round((withMarket / totalRanked) * 100)}%`}
+              sub="of Top 100 has a tracked market"
             />
           </div>
 
@@ -113,26 +142,25 @@ function KpiCard({
   );
 }
 
-function EmptyState() {
+function FetchFailedState({ message }: { message: string | null }) {
   return (
     <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-10 text-center">
       <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
-        Empty
+        Couldn&apos;t load Top 100
       </div>
       <div className="mt-2 text-2xl font-extrabold tracking-tight-3">
-        No prospect rankings yet
+        MLB Pipeline didn&apos;t respond
       </div>
       <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">
-        Pulls the Top 100 from MLB Pipeline. Hit Refresh on the admin
-        page to seed it — Sleeper Scores fill in automatically once the
-        list lands.
+        We try to fetch this list automatically. If you&apos;re seeing
+        this, the upstream source was unreachable on this load — refresh
+        the page in a few seconds.
       </p>
-      <Link
-        href="/admin/prospects"
-        className="mt-5 inline-block rounded-md bg-ink px-5 py-2.5 text-sm font-bold uppercase tracking-tight-2 text-white hover:opacity-90"
-      >
-        Refresh from MLB →
-      </Link>
+      {message && (
+        <pre className="mx-auto mt-3 max-w-md overflow-x-auto rounded bg-slate-50 p-2 text-left text-[10px] text-slate-500">
+          {message}
+        </pre>
+      )}
     </div>
   );
 }
