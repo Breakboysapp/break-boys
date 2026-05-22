@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Result =
   | {
@@ -12,15 +12,29 @@ type Result =
     }
   | { ok: false; error: string };
 
+// Browser-only; gated by ADMIN_SECRET still — this just saves the
+// admin from retyping it on every visit.
+const STORAGE_KEY = "breakboys:adminSecret";
+
 export default function ProspectsRefresh() {
   const [secret, setSecret] = useState("");
+  const [remembered, setRemembered] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const hydrated = useRef(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      setSecret(saved);
+      setRemembered(true);
+    }
+    hydrated.current = true;
+  }, []);
+
+  async function runRefresh(s: string) {
     setResult(null);
-    if (!secret.trim()) {
+    if (!s.trim()) {
       setResult({ ok: false, error: "ADMIN_SECRET is required." });
       return;
     }
@@ -30,11 +44,20 @@ export default function ProspectsRefresh() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Admin-Secret": secret.trim(),
+          "X-Admin-Secret": s.trim(),
         },
       });
       const data = (await res.json()) as Result;
       setResult(data);
+      if (data.ok) {
+        localStorage.setItem(STORAGE_KEY, s.trim());
+        setRemembered(true);
+      } else if (res.status === 403) {
+        // Wrong secret — clear the stored one so the field is editable
+        // again on next visit instead of silently re-using a bad value.
+        localStorage.removeItem(STORAGE_KEY);
+        setRemembered(false);
+      }
     } catch (err) {
       setResult({
         ok: false,
@@ -45,25 +68,44 @@ export default function ProspectsRefresh() {
     }
   }
 
+  function clearStored() {
+    localStorage.removeItem(STORAGE_KEY);
+    setSecret("");
+    setRemembered(false);
+    setResult(null);
+  }
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    void runRefresh(secret);
+  }
+
   return (
     <form
-      onSubmit={submit}
+      onSubmit={onSubmit}
       className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
     >
-      <label className="block max-w-sm">
-        <span className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
-          Admin secret
-        </span>
-        <input
-          type="password"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          placeholder="ADMIN_SECRET"
-          className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-ink focus:outline-none"
-        />
-      </label>
+      {!remembered && (
+        <label className="block max-w-sm">
+          <span className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
+            Admin secret
+          </span>
+          <input
+            type="password"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            placeholder="ADMIN_SECRET"
+            className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-ink focus:outline-none"
+            autoComplete="off"
+          />
+          <span className="mt-1 block text-[10px] text-slate-500">
+            Saved to this browser after first successful refresh — you
+            won&apos;t need to type it again.
+          </span>
+        </label>
+      )}
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="submit"
           disabled={submitting}
@@ -71,9 +113,18 @@ export default function ProspectsRefresh() {
         >
           {submitting ? "Refreshing…" : "Refresh from MLB Pipeline"}
         </button>
+        {remembered && (
+          <button
+            type="button"
+            onClick={clearStored}
+            className="text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-accent"
+          >
+            Forget secret
+          </button>
+        )}
         <a
           href="/prospects"
-          className="text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-ink"
+          className="ml-auto text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-ink"
         >
           View Sleeper Index →
         </a>
