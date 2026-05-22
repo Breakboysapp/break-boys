@@ -1,10 +1,14 @@
-import ProspectsPaste from "./ProspectsPaste";
+import ProspectsRefresh from "./ProspectsRefresh";
 
 /**
- * Admin-only page for pasting in a Top 100 prospects list. The form
- * POSTs to /api/admin/prospects with the ADMIN_SECRET header — same
- * secret already used by /api/admin/revalidate and the manual
- * pricecharting bootstrap.
+ * Admin-only page that refreshes the Top 100 from MLB Pipeline.
+ *
+ * The button POSTs to /api/admin/prospects with the ADMIN_SECRET
+ * header — same secret already used by /api/admin/revalidate and the
+ * manual pricecharting bootstrap. A weekly cron at
+ * /api/cron/refresh-prospects keeps the data fresh automatically; this
+ * page exists for on-demand refreshes when Pipeline publishes an
+ * out-of-cycle update.
  *
  * Not behind real auth yet (no auth layer exists in the app); the
  * downstream API route gates writes via ADMIN_SECRET so an anonymous
@@ -23,24 +27,28 @@ export default function ProspectsAdminPage() {
           Admin
         </div>
         <h1 className="mt-1 text-2xl font-extrabold leading-tight tracking-tight-3 sm:text-4xl">
-          Prospect Rankings · Paste
+          Prospect Rankings · Refresh
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-500">
-          Paste a Top 100 list — one prospect per line. Numeric rank is
-          optional (defaults to line order). Common shapes recognized:
-          <br />
-          <span className="font-mono">
-            1. Roki Sasaki, RHP, Dodgers, 23
-          </span>
-          <br />
-          <span className="font-mono">
-            2 Walker Jenkins - OF - Twins - 21 - AA
-          </span>
-          <br />
-          The list backs the Sleeper Index at <a className="underline" href="/prospects">/prospects</a>.
+          Pulls the Top 100 directly from{" "}
+          <a
+            className="underline"
+            href="https://www.mlb.com/milb/prospects"
+            target="_blank"
+            rel="noreferrer"
+          >
+            mlb.com/milb/prospects
+          </a>{" "}
+          and replaces every existing <span className="font-mono">mlb-pipeline</span>{" "}
+          row. The weekly cron does this automatically — use the button
+          for on-demand refreshes. Backs the Sleeper Index at{" "}
+          <a className="underline" href="/prospects">
+            /prospects
+          </a>
+          .
         </p>
       </div>
-      <ProspectsPaste />
+      <ProspectsRefresh />
     </div>
   );
 }
