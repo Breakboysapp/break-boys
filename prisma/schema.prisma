@@ -325,3 +325,39 @@ model ProspectRanking {
   @@index([sport, rank])
   @@index([normalizedName])
 }
+
+// MiLB roster cache — one row per active minor-leaguer per sync.
+// Populated from MLB Stats API (statsapi.mlb.com/api/v1/sports/{id}/players)
+// across sportId 11 (AAA), 12 (AA), 13 (A+), 14 (A), 16 (Rookie).
+//
+// Powers the /products/[id]/sleepers page: we join a product's
+// checklist player names against this table to surface each
+// prospect's *current* level + org + age — so a Bowman 2026 buyer
+// can see who's playing where right now, regardless of where they
+// were ranked preseason. v2 adds per-player stat lines on top.
+//
+// Wipe-and-replace per refresh (driven by lastSyncedAt). Players
+// who change levels mid-season will simply appear under the new
+// level on the next sync. Players who get released drop off.
+model MilbRoster {
+  id             String   @id @default(cuid())
+  // statsapi.mlb.com person ID — used to fetch stats in v2.
+  mlbPlayerId    Int
+  playerName     String
+  // Lowercase + diacritic-stripped via normalizeKey() — joins
+  // cleanly against Card.playerName and ProspectRanking.normalizedName.
+  normalizedName String
+  // "AAA" | "AA" | "A+" | "A" | "ROK" — derived from sportId.
+  level          String
+  teamId         Int?
+  teamName       String?
+  position       String? // primary position abbreviation
+  age            Int?
+  bats           String? // "L" | "R" | "S"
+  throws         String? // "L" | "R"
+  lastSyncedAt   DateTime @default(now())
+
+  @@unique([mlbPlayerId])
+  @@index([normalizedName])
+  @@index([level])
+}

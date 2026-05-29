@@ -350,6 +350,168 @@ export async function getProspectSleeperIndex(sport: string = "MLB") {
 }
 
 /**
+ * Per-product sleeper board — joins one product's checklist with the
+ * MLB roster cache and the existing card-market math, returning one
+ * row per distinct player in the product.
+ *
+ * Powers /products/[id]/sleepers. The headline use case is a Bowman
+ * 2026 buyer in a Pick-Your-Player break: every prospect in the
+ * checklist with their current MiLB level/org/age and their card
+ * market — so they can spot the AA hitter whose Bowman auto hasn't
+ * priced him in yet.
+ *
+ * Stats-driven Production Index ships in phase 2; for now `production`
+ * is null and the table just surfaces market + level. The shape is
+ * already wired so phase 2 is purely a backfill.
+ *
+ * Cached 30m, tagged 'products' + 'milb-roster' — bust on either
+ * checklist mutations or a roster refresh.
+ */
+const _getProductSleeperBoardRaw = unstable_cache(
+  async (productId: string) => {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true, sport: true },
+    });
+    if (!product) return null;
+
+    // Distinct players in this product's checklist. Pull the raw rows
+    // so we can bucket priced cards by normalized name below.
+    const cards = await prisma.card.findMany({
+      where: { productId },
+      select: {
+        playerName: true,
+        psa10Cents: true,
+        ungradedCents: true,
+      },
+    });
+    if (cards.length === 0) return { product, rows: [], unmatched: 0 };
+
+    const norm = (s: string) =>
+      s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+    // Per-player market blend — mirrors getProspectSleeperIndex so a
+    // player's market read is consistent across surfaces. Eff price
+    // = max(psa10, raw × 6) to bring raw comps into the same scale.
+    const RAW_TO_GRADED = 6;
+    const eff = (psa: number | null, raw: number | null) =>
+      Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
+    const median = (a: number[]) => {
+      if (a.length === 0) return 0;
+      const s = [...a].sort((x, y) => x - y);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+
+    type PlayerAgg = {
+      playerName: string;
+      normalizedName: string;
+      cardCount: number;
+      prices: number[];
+    };
+    const byPlayer = new Map<string, PlayerAgg>();
+    for (const c of cards) {
+      const key = norm(c.playerName);
+      const agg = byPlayer.get(key) ?? {
+        playerName: c.playerName,
+        normalizedName: key,
+        cardCount: 0,
+        prices: [],
+      };
+      agg.cardCount += 1;
+      const v = eff(c.psa10Cents, c.ungradedCents);
+      if (v > 0) agg.prices.push(v);
+      byPlayer.set(key, agg);
+    }
+
+    // Roster lookup keyed by normalized name. Roster is small (~8k
+    // rows) and read-once per request — no need for batched WHERE IN.
+    const rosterRows = await prisma.milbRoster.findMany({
+      select: {
+        normalizedName: true,
+        level: true,
+        teamName: true,
+        position: true,
+        age: true,
+        mlbPlayerId: true,
+      },
+    });
+    const rosterByName = new Map(
+      rosterRows.map((r) => [r.normalizedName, r]),
+    );
+
+    // Pipeline rank lookup — same shape, lets us surface "ranked vs
+    // unranked" on the page so the user can filter out the
+    // already-obvious chases (Holliday, Made, etc.).
+    const rankings = await prisma.prospectRanking.findMany({
+      where: { sport: product.sport, source: "mlb-pipeline" },
+      select: { normalizedName: true, rank: true },
+    });
+    const rankByName = new Map(rankings.map((r) => [r.normalizedName, r.rank]));
+
+    // Normalize market across this product so the values are
+    // comparable within the break. Top guy in the product = 100.
+    const rawBlend = new Map<string, number>();
+    for (const [k, agg] of byPlayer) {
+      if (agg.prices.length === 0) continue;
+      const top = Math.max(...agg.prices);
+      const med = median(agg.prices);
+      rawBlend.set(k, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
+    }
+    const maxBlend = Math.max(0, ...rawBlend.values());
+
+    const rows = [...byPlayer.values()].map((agg) => {
+      const roster = rosterByName.get(agg.normalizedName);
+      const rank = rankByName.get(agg.normalizedName) ?? null;
+      const topPrice = agg.prices.length > 0 ? Math.max(...agg.prices) : null;
+      const medPrice =
+        agg.prices.length > 0 ? Math.round(median(agg.prices)) : null;
+      const blend = rawBlend.get(agg.normalizedName) ?? 0;
+      const market =
+        maxBlend > 0 && blend > 0
+          ? Math.max(1, Math.round((blend / maxBlend) * 100))
+          : null;
+      return {
+        playerName: agg.playerName,
+        normalizedName: agg.normalizedName,
+        cardCount: agg.cardCount,
+        topPriceCents: topPrice,
+        medianPriceCents: medPrice,
+        market,
+        // Roster join — may be null if no match (released, retired,
+        // not on a 40-man-equivalent MiLB roster, or a name spelling
+        // we couldn't normalize across sources).
+        matched: roster != null,
+        level: roster?.level ?? null,
+        teamName: roster?.teamName ?? null,
+        position: roster?.position ?? null,
+        age: roster?.age ?? null,
+        mlbPlayerId: roster?.mlbPlayerId ?? null,
+        // Pipeline rank if present — used to filter "ranked" out so
+        // the table surfaces under-the-radar guys.
+        pipelineRank: rank,
+        // Phase 2 fields, null for now.
+        production: null as number | null,
+        sleeper: null as number | null,
+      };
+    });
+
+    // Sort by top-price desc so the biggest names lead by default.
+    // The page lets the user re-sort once it's loaded.
+    rows.sort((a, b) => (b.topPriceCents ?? 0) - (a.topPriceCents ?? 0));
+
+    const unmatched = rows.filter((r) => !r.matched).length;
+    return { product, rows, unmatched };
+  },
+  ["product-sleeper-board"],
+  { revalidate: 30 * 60, tags: ["products", "milb-roster"] },
+);
+export async function getProductSleeperBoard(productId: string) {
+  const result = await _getProductSleeperBoardRaw(productId);
+  return result ? reviveDates(result) : null;
+}
+
+/**
  * Light card list for a sport — used by /hot/[sport] to resolve a
  * player's primary team. Returns just team + playerName + variation
  * + cardNumber, no price fields.

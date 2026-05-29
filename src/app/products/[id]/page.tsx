@@ -501,6 +501,14 @@ export default async function ProductPage({
             >
               Start a break →
             </Link>
+            {product.sport === "MLB" && (
+              <Link
+                href={`/products/${product.id}/sleepers`}
+                className="block w-full rounded-md border border-ink px-5 py-3 text-center text-sm font-bold uppercase tracking-tight-2 text-ink hover:bg-ink hover:text-white sm:inline-block sm:w-auto"
+              >
+                Sleeper board →
+              </Link>
+            )}
           </div>
         )}
         {isComingSoon && (
