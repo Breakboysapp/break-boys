@@ -45,7 +45,14 @@ export async function refreshMilbStats(
     }),
   ]);
 
-  revalidateTag("milb-stats");
+  // See refresh-roster.ts — best-effort, throws inside render and we
+  // don't care because the cache miss on the immediate next read
+  // picks up the fresh data anyway.
+  try {
+    revalidateTag("milb-stats");
+  } catch {
+    // ignored
+  }
 
   return {
     hittingRows: hitting.length,

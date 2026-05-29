@@ -53,7 +53,17 @@ export async function refreshMilbRoster(): Promise<RosterRefreshResult> {
     prisma.milbRoster.createMany({ data: rows }),
   ]);
 
-  revalidateTag("milb-roster");
+  // Best-effort cache-bust. When this runs from inside a Server
+  // Component render (the /products/[id]/sleepers self-seed path),
+  // Next.js throws — that's expected. The DB writes already
+  // succeeded; the page's subsequent cached-query read is a cache
+  // miss anyway (first hit per productId), so it picks up fresh
+  // data without needing this signal.
+  try {
+    revalidateTag("milb-roster");
+  } catch {
+    // ignored — see above
+  }
 
   return {
     fetched: roster.length,
