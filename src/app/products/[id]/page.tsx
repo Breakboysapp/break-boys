@@ -18,7 +18,6 @@ import {
 } from "@/lib/international-anime";
 import { rollupChasePlayers } from "@/lib/chase-rollup";
 import { buildTeamExpandedRows } from "@/lib/team-expanded-rollup";
-import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
 import FavoriteButton from "./FavoriteButton";
 import ProductFormatsBar from "./ProductFormatsBar";
@@ -413,6 +412,21 @@ export default async function ProductPage({
     (c) => c.psa10Cents != null && c.psa10Cents > 0,
   );
 
+  // Product-wide gem rate — Σ popG10 / Σ popTotal across every card with
+  // pop data. Weighted by total graded count, so a card with 5,000 graded
+  // matters more than a 1-card sample. Null when no card has pop data
+  // yet (chip just doesn't render). Same math the per-player Chase
+  // Scoreboard uses, summed one level up.
+  let popG10Sum = 0;
+  let popTotalSum = 0;
+  for (const c of cards) {
+    if (c.popTotal != null && c.popTotal > 0) {
+      popG10Sum += c.popG10 ?? 0;
+      popTotalSum += c.popTotal;
+    }
+  }
+  const overallGemRate = popTotalSum > 0 ? popG10Sum / popTotalSum : null;
+
   // Pre-compute the team-expanded player sub-rows server-side. Each
   // entry is a small per-team list keyed by the team name; replaces
   // the prior approach of shipping the entire 1,200+ card array to
@@ -487,6 +501,14 @@ export default async function ProductPage({
             >
               Start a break →
             </Link>
+            {product.sport === "MLB" && (
+              <Link
+                href={`/products/${product.id}/sleepers`}
+                className="block w-full rounded-md border border-ink px-5 py-3 text-center text-sm font-bold uppercase tracking-tight-2 text-ink hover:bg-ink hover:text-white sm:inline-block sm:w-auto"
+              >
+                Sleeper board →
+              </Link>
+            )}
           </div>
         )}
         {isComingSoon && (
@@ -496,6 +518,46 @@ export default async function ProductPage({
           </div>
         )}
       </div>
+
+      {/* Overall gem rate — Σ popG10 / Σ popTotal across every card in
+          the product that has pop data. One canonical "how often does
+          this product yield a PSA 10?" number, surfaced prominently so
+          you don't have to drill into the per-player Chase Scoreboard
+          to read it. Silently absent on products without pop data
+          (mostly unreleased / not-yet-backfilled sets); the slot
+          collapses cleanly without leaving a "—%" gap. */}
+      {overallGemRate != null && (
+        <div
+          className="rounded-2xl border border-slate-200 bg-white p-5"
+          title={`${popG10Sum.toLocaleString()} PSA 10s out of ${popTotalSum.toLocaleString()} graded cards across every card in this product with pop data`}
+        >
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-tight-2 text-accent">
+                Overall gem rate
+              </div>
+              <div className="mt-1 text-4xl font-extrabold tracking-tight-3 text-ink sm:text-5xl">
+                {(overallGemRate * 100).toFixed(1)}%
+              </div>
+            </div>
+            <div className="text-right text-[11px] leading-snug text-slate-500">
+              <div>
+                <span className="font-bold text-ink">
+                  {popG10Sum.toLocaleString()}
+                </span>{" "}
+                PSA 10s
+              </div>
+              <div>
+                of{" "}
+                <span className="font-bold text-ink">
+                  {popTotalSum.toLocaleString()}
+                </span>{" "}
+                graded cards
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Box format selector — compact native <select> dropdown.
           Pre-seeded for every product based on its name pattern
@@ -517,7 +579,7 @@ export default async function ProductPage({
       )}
 
       {hasNoChecklist ? (
-        <ComingSoon productId={product.id} />
+        <ComingSoon />
       ) : (
         <>
           {/*
@@ -565,20 +627,6 @@ export default async function ProductPage({
             </section>
           )}
 
-          {/* Checklist import lives at the bottom — once the product is
-              loaded, this is rarely interacted with, so it shouldn't dominate
-              the top of the page. Collapsed by default. */}
-          <details className="rounded-2xl border border-slate-200 bg-white">
-            <summary className="cursor-pointer px-5 py-3 text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-ink">
-              Checklist · {product._count.cards} cards · re-import or replace
-            </summary>
-            <div className="border-t border-slate-200 p-5">
-              <ChecklistUpload
-                productId={product.id}
-                hasExistingCards={product._count.cards > 0}
-              />
-            </div>
-          </details>
         </>
       )}
     </div>
@@ -715,31 +763,20 @@ function computeTeamMarketScores(
  * Keeps the checklist import UI accessible below the banner so the user can
  * retry once Beckett (or another source) publishes the data.
  */
-function ComingSoon({ productId }: { productId: string }) {
+function ComingSoon() {
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-12 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
-          Status
-        </div>
-        <div className="mt-2 text-3xl font-extrabold tracking-tight-3">
-          CHECKLIST COMING SOON
-        </div>
-        <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">
-          We couldn't find a published checklist for this product yet. Beckett
-          and other sources usually post the full <code>.xlsx</code> closer to
-          release date. Try again later, or paste a URL below if you've found
-          one elsewhere.
-        </p>
+    <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-12 text-center">
+      <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
+        Status
       </div>
-      <details className="rounded-2xl border border-slate-200 bg-white">
-        <summary className="cursor-pointer px-5 py-3 text-[11px] font-bold uppercase tracking-tight-2 text-slate-500">
-          Have a checklist URL? Import it now
-        </summary>
-        <div className="border-t border-slate-200 p-5">
-          <ChecklistUpload productId={productId} hasExistingCards={false} />
-        </div>
-      </details>
+      <div className="mt-2 text-3xl font-extrabold tracking-tight-3">
+        CHECKLIST COMING SOON
+      </div>
+      <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">
+        We couldn&apos;t find a published checklist for this product yet.
+        Beckett and other sources usually post the full <code>.xlsx</code>{" "}
+        closer to release date — we&apos;ll pick it up automatically.
+      </p>
     </div>
   );
 }

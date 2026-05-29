@@ -21,6 +21,7 @@
  * the browser instead of looking frozen for 3-5 minutes.
  */
 import { NextRequest } from "next/server";
+import { revalidateTag } from "next/cache";
 import { PrismaClient } from "@prisma/client";
 import {
   TRACKED_SLUGS,
@@ -98,14 +99,24 @@ export async function GET(req: NextRequest) {
       `Refreshing ${slugs.length} set${slugs.length === 1 ? "" : "s"}…`,
     );
     send("");
+    const importedProductIds = new Set<string>();
     for (const meta of slugs) {
       // skipPop: pop fetch hangs from Vercel's serverless egress
       // (Cloudflare bot-walls the SCP host even via curl). Pop counts
       // get backfilled later via the local CLI script which doesn't hit
       // the same restriction. Cron stays fast + unblocked.
-      await importSet(prisma, meta, send, { skipPop: true });
+      const result = await importSet(prisma, meta, send, { skipPop: true });
+      if (result.productId) importedProductIds.add(result.productId);
       send("");
     }
+    // Bust caches so the product detail pages and homepage list pick up
+    // fresh prices / pop counts within seconds instead of waiting on
+    // the 1-hour TTL. Same pattern as refresh-trending.
+    revalidateTag("products");
+    for (const id of importedProductIds) revalidateTag(`product-${id}`);
+    send(
+      `Revalidated tags: products + ${importedProductIds.size} product-* tags.`,
+    );
     send("All sets refreshed.");
   } catch (err) {
     send(`ERROR: ${err instanceof Error ? err.message : String(err)}`);

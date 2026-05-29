@@ -39,40 +39,40 @@ model Product {
 }
 
 model Card {
-  id               String              @id @default(cuid())
-  productId        String
-  team             String
-  playerName       String
-  cardNumber       String
-  variation        String?
+  id                   String              @id @default(cuid())
+  productId            String
+  team                 String
+  playerName           String
+  cardNumber           String
+  variation            String?
   // Per-card market signal — populated by the eBay fetcher.
   // Median asking price across recent active listings, in cents. Used in the
   // composite scoring blend in src/lib/scoring.ts.
-  marketValueCents Int?
-  marketSampleSize Int?
-  marketObservedAt DateTime?
+  marketValueCents     Int?
+  marketSampleSize     Int?
+  marketObservedAt     DateTime?
   // PriceCharting / SportsCardsPro per-card data. All optional —
   // populated by scripts/import-pricecharting-set.ts when the card
   // matches a PriceCharting listing. Prices in cents (consistent with
   // marketValueCents / boxPriceCents elsewhere in the schema).
-  pricechartingId  String?             @unique
-  ungradedCents    Int? // PC price1 — raw / loose
-  psa10Cents       Int? // PC price2 — graded gem
-  psa9Cents        Int? // PC price3 — graded mint
-  printRun         Int? // 0 or null = unnumbered; 5 = /5 etc.
-  imageUrl         String?
-  pricesUpdatedAt  DateTime?
+  pricechartingId      String?             @unique
+  ungradedCents        Int? // PC price1 — raw / loose
+  psa10Cents           Int? // PC price2 — graded gem
+  psa9Cents            Int? // PC price3 — graded mint
+  printRun             Int? // 0 or null = unnumbered; 5 = /5 etc.
+  imageUrl             String?
+  pricesUpdatedAt      DateTime?
   // PSA + CGC pop counts (combined, per pricecharting.com/pop). Snapshot
   // in time — re-imported as a batch since pop counts shift weekly as
   // grading slabs land. popTotal = sum of grade cells; gem rate is
   // computed at query time as popG10 / popTotal.
-  popG6            Int?
-  popG7            Int?
-  popG8            Int?
-  popG9            Int?
-  popG10           Int?
-  popTotal         Int?
-  popUpdatedAt     DateTime?
+  popG6                Int?
+  popG7                Int?
+  popG8                Int?
+  popG9                Int?
+  popG10               Int?
+  popTotal             Int?
+  popUpdatedAt         DateTime?
   // Card Hedger linkage. cardHedgerId is the durable foreign key
   // (returned by /v1/cards/card-match and /v1/cards/card-search) we
   // use for all subsequent CH calls — prices-by-card, comps,
@@ -82,7 +82,7 @@ model Card {
   // matchedAt + confidence + reasoning let us re-attempt low-confidence
   // matches periodically as CH's catalog improves (their fuzzy matcher
   // gets sharper as more sales accumulate on a fresh release).
-  cardHedgerId         String?   @unique
+  cardHedgerId         String?             @unique
   cardHedgerMatchedAt  DateTime?
   cardHedgerConfidence Float?
   cardHedgerReasoning  String?
@@ -283,4 +283,128 @@ model UserFavoriteProduct {
 
   @@unique([userId, productId])
   @@index([userId])
+}
+
+// Published prospect-ranking rows — the "ground truth" universe for the
+// Sleeper Index. One row per (source, sport, playerName) — re-running an
+// ingest of the same Top 100 from the same source upserts in place so
+// the list can be refreshed mid-season without duplicates.
+//
+// Quality on the Sleeper Index page is derived directly from `rank`
+// (rank 1 = quality 100, rank 100 = quality 1), so the publisher's
+// list IS the quality signal until we add MiLB stats in v2.
+//
+// `normalizedName` mirrors the lowercase + diacritic-stripped form
+// stored on Card.playerName (via lib/player-name-normalize.ts) so a
+// cross-table join surfaces each prospect's card market with no
+// further normalization at query time.
+model ProspectRanking {
+  id             String   @id @default(cuid())
+  // "mlb-pipeline" | "fangraphs" | "baseball-america" | "manual"
+  source         String
+  sport          String   @default("MLB")
+  rank           Int
+  playerName     String
+  normalizedName String
+  // Optional metadata captured from the published list — surfaced on
+  // the table but not required (some lists omit org/level/age fields).
+  position       String?
+  org            String? // affiliated MLB org, e.g. "Dodgers"
+  level          String? // "AAA" | "AA" | "A+" | "A" | "ROK" | "DSL"
+  age            Int?
+  // Rank from the prior snapshot, populated each refresh by looking
+  // up the player's previous (source, sport, normalizedName) row
+  // before the wipe-and-replace. Null = new entry to the list.
+  // Drives the ↑/↓/NEW movement chip on /prospects.
+  previousRank   Int?
+  // Snapshot timestamp — lets us track ranking drift over time once we
+  // ingest the same source twice (mid-season vs preseason lists).
+  capturedAt     DateTime @default(now())
+
+  @@unique([source, sport, normalizedName])
+  @@index([sport, rank])
+  @@index([normalizedName])
+}
+
+// MiLB roster cache — one row per active minor-leaguer per sync.
+// Populated from MLB Stats API (statsapi.mlb.com/api/v1/sports/{id}/players)
+// across sportId 11 (AAA), 12 (AA), 13 (A+), 14 (A), 16 (Rookie).
+//
+// Powers the /products/[id]/sleepers page: we join a product's
+// checklist player names against this table to surface each
+// prospect's *current* level + org + age — so a Bowman 2026 buyer
+// can see who's playing where right now, regardless of where they
+// were ranked preseason. v2 adds per-player stat lines on top.
+//
+// Wipe-and-replace per refresh (driven by lastSyncedAt). Players
+// who change levels mid-season will simply appear under the new
+// level on the next sync. Players who get released drop off.
+model MilbRoster {
+  id             String   @id @default(cuid())
+  // statsapi.mlb.com person ID — used to fetch stats in v2.
+  mlbPlayerId    Int
+  playerName     String
+  // Lowercase + diacritic-stripped via normalizeKey() — joins
+  // cleanly against Card.playerName and ProspectRanking.normalizedName.
+  normalizedName String
+  // "AAA" | "AA" | "A+" | "A" | "ROK" — derived from sportId.
+  level          String
+  teamId         Int?
+  teamName       String?
+  position       String? // primary position abbreviation
+  age            Int?
+  bats           String? // "L" | "R" | "S"
+  throws         String? // "L" | "R"
+  lastSyncedAt   DateTime @default(now())
+
+  @@unique([mlbPlayerId])
+  @@index([normalizedName])
+  @@index([level])
+}
+
+// Per-player season stat line, one row per (mlbPlayerId, season, group).
+// Populated alongside MilbRoster from MLB Stats API batch endpoints
+// (statsapi.mlb.com/api/v1/stats?stats=season&group=...&sportIds=...).
+//
+// Hitting and pitching are separate rows (two-way players get one
+// of each). The set of fields covers both groups — hitting rows
+// leave pitching fields null and vice versa.
+//
+// Powers the Production Index on /products/[id]/sleepers — combined
+// with MilbRoster.level and .age, this is what lets us surface
+// "raking in AA but card market hasn't caught up."
+model MilbStatLine {
+  id             String   @id @default(cuid())
+  mlbPlayerId    Int
+  season         Int
+  group          String   // "hitting" | "pitching"
+  level          String   // "AAA" | "AA" | "A+" | "A" | "ROK"
+  teamName       String?
+  // Shared
+  gamesPlayed    Int
+  age            Int?
+  // Hitting
+  plateAppearances Int?
+  atBats         Int?
+  hits           Int?
+  homeRuns       Int?
+  baseOnBalls   Int?
+  strikeOuts    Int?
+  // Stored as floats (0-something) — ".261" parses to 0.261.
+  avg            Float?
+  obp            Float?
+  slg            Float?
+  ops            Float?
+  // Pitching
+  inningsPitched Float?
+  earnedRuns     Int?
+  era            Float?
+  whip           Float?
+  // Sync timestamp; mirrors MilbRoster.lastSyncedAt for the same
+  // freshness window.
+  lastSyncedAt   DateTime @default(now())
+
+  @@unique([mlbPlayerId, season, group])
+  @@index([group, level])
+  @@index([mlbPlayerId])
 }

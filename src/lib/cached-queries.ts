@@ -12,14 +12,48 @@
  * blow-up that took prod down on 2026-05-16.
  *
  * Mutation routes can call `revalidateTag(...)` to bust a specific
- * slice when they want immediate freshness — see
- * src/app/api/products/[id]/checklist/route.ts and friends.
+ * slice when they want immediate freshness — e.g. the prospects
+ * refresh, the pricing cron, and the favorites endpoint.
  */
 
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { productionIndex } from "@/lib/sleepers/refresh-stats";
 
 const ONE_HOUR = 3600;
+
+// Pre-bound helpers so the call sites read clean. v1 math is in
+// productionIndex(); these just splat the args at it. Two-way
+// callers invoke each separately and keep the higher score.
+function computeHitterProduction(args: {
+  level: string;
+  age: number | null;
+  plateAppearances: number | null;
+  ops: number | null;
+}): number | null {
+  return productionIndex({ group: "hitting", ...args });
+}
+function computePitcherProduction(args: {
+  level: string;
+  age: number | null;
+  inningsPitched: number | null;
+  era: number | null;
+  strikeOuts: number | null;
+  baseOnBalls: number | null;
+}): number | null {
+  return productionIndex({ group: "pitching", ...args });
+}
+
+function formatOps(ops: number | null): string {
+  if (ops == null) return "—";
+  // .261 style — leading dot, three-decimal precision.
+  const s = ops.toFixed(3);
+  return s.startsWith("0") ? s.slice(1) : s;
+}
+function formatEra(era: number | null): string {
+  if (era == null) return "—";
+  return era.toFixed(2);
+}
 
 /**
  * unstable_cache serializes its return value through Next.js's data
@@ -202,6 +236,413 @@ export async function getTrendingSnapshotsForSport(
     { revalidate: ONE_HOUR, tags: ["trending"] },
   )();
   return reviveDates(cached);
+}
+
+/**
+ * Sleeper Index — the headline query for /prospects.
+ *
+ * Joins the published ProspectRanking universe against each player's
+ * card market (every priced card across every product in the same
+ * sport). Computes quality + market + sleeper score in app code so
+ * the formula stays readable and easy to tune. Returns one row per
+ * ranked prospect, sorted by sleeper score desc.
+ *
+ *   Quality = 101 − rank             (rank 1 → 100, rank 100 → 1)
+ *   Market  = normalize(
+ *               log(top_psa10 + 1) * 0.6 + log(median_priced + 1) * 0.4
+ *             )                        (0-100, top prospect = 100)
+ *   Sleeper = Quality / Market         (higher = more undervalued)
+ *
+ * "Effective" price per card = max(psa10, raw × 6) — matches the
+ * existing chase-rollup math so a card with a known raw comp but no
+ * graded comp still contributes to the player's market signal.
+ *
+ * Cached 1h, tagged 'prospects' + 'products' (since the market half
+ * of the score reads from card prices, mutations on either side
+ * should bust this cache).
+ */
+const _getProspectSleeperIndexRaw = unstable_cache(
+  async (sport: string) => {
+    const rankings = await prisma.prospectRanking.findMany({
+      where: { sport },
+      orderBy: { rank: "asc" },
+    });
+    if (rankings.length === 0) return [];
+
+    // Single read of every priced card in the sport, scoped to the
+    // players on the ranking list. Avoids fetching the whole Card
+    // table on big sports.
+    const normalizedNames = rankings.map((r) => r.normalizedName);
+    const pricedCards = await prisma.card.findMany({
+      where: {
+        product: { sport },
+        OR: [
+          { psa10Cents: { gt: 0 } },
+          { ungradedCents: { gt: 0 } },
+        ],
+      },
+      select: {
+        playerName: true,
+        psa10Cents: true,
+        ungradedCents: true,
+      },
+    });
+
+    // Bucket cards by normalized player name. normalizeKey() is the
+    // same canonicalizer the importer uses on writes, so the DB and
+    // the ranking list join cleanly even when one source spells the
+    // player "Junior Caminero" and the other "Junior Caminero".
+    // Note: normalizeKey is duplicated here vs. importing the helper
+    // because cached-queries.ts is intentionally framework-free —
+    // the helper file also has a heavier DB-dependent build function
+    // we don't need.
+    const norm = (s: string) =>
+      s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const RAW_TO_GRADED = 6;
+    const eff = (psa: number | null, raw: number | null) =>
+      Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
+    const median = (a: number[]) => {
+      if (a.length === 0) return 0;
+      const s = [...a].sort((x, y) => x - y);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+    const byPlayer = new Map<string, number[]>();
+    for (const c of pricedCards) {
+      const v = eff(c.psa10Cents, c.ungradedCents);
+      if (v <= 0) continue;
+      const k = norm(c.playerName);
+      const arr = byPlayer.get(k) ?? [];
+      arr.push(v);
+      byPlayer.set(k, arr);
+    }
+
+    // Per-player market blend before normalization. Direct port of the
+    // chase-rollup formula — log compression so a $50k chase card
+    // doesn't fully dominate over depth + median signal.
+    const rawBlend = new Map<string, number>();
+    for (const [k, prices] of byPlayer) {
+      const top = Math.max(...prices);
+      const med = median(prices);
+      rawBlend.set(k, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
+    }
+    const maxBlend = Math.max(0, ...rawBlend.values());
+
+    // Final per-prospect row. Quality from rank, market normalized
+    // 0-100, sleeper score from the ratio. Cards-without-market get
+    // market = null (rendered as "—" + sleeper = null on the UI side)
+    // rather than market = 0 — dividing by zero would push every no-
+    // market prospect to Infinity and crowd out the actual sleepers.
+    const rows = rankings.map((r) => {
+      const blend = rawBlend.get(r.normalizedName) ?? 0;
+      const market =
+        maxBlend > 0 && blend > 0
+          ? Math.max(1, Math.round((blend / maxBlend) * 100))
+          : null;
+      const quality = Math.max(1, 101 - r.rank);
+      const sleeper =
+        market != null && market > 0 ? quality / market : null;
+      // movement: positive = climbed (lower rank #), negative = fell.
+      // null = no prior snapshot (first appearance on the list).
+      const movement =
+        r.previousRank != null ? r.previousRank - r.rank : null;
+      return {
+        rank: r.rank,
+        previousRank: r.previousRank,
+        movement,
+        playerName: r.playerName,
+        normalizedName: r.normalizedName,
+        position: r.position,
+        org: r.org,
+        level: r.level,
+        age: r.age,
+        source: r.source,
+        capturedAt: r.capturedAt,
+        quality,
+        market,
+        sleeper,
+        pricedCardCount: byPlayer.get(r.normalizedName)?.length ?? 0,
+      };
+    });
+
+    // Sort by sleeper score desc, treating null sleeper (no card market)
+    // as last so the "actual sleeper" view leads with quality+market
+    // matches. Tie-break by rank.
+    rows.sort((a, b) => {
+      const av = a.sleeper ?? -Infinity;
+      const bv = b.sleeper ?? -Infinity;
+      if (av !== bv) return bv - av;
+      return a.rank - b.rank;
+    });
+    return rows;
+  },
+  ["prospect-sleeper-index"],
+  { revalidate: ONE_HOUR, tags: ["prospects", "products"] },
+);
+export async function getProspectSleeperIndex(sport: string = "MLB") {
+  return reviveDates(await _getProspectSleeperIndexRaw(sport));
+}
+
+/**
+ * Per-product sleeper board — joins one product's checklist with the
+ * MLB roster cache and the existing card-market math, returning one
+ * row per distinct player in the product.
+ *
+ * Powers /products/[id]/sleepers. The headline use case is a Bowman
+ * 2026 buyer in a Pick-Your-Player break: every prospect in the
+ * checklist with their current MiLB level/org/age and their card
+ * market — so they can spot the AA hitter whose Bowman auto hasn't
+ * priced him in yet.
+ *
+ * Stats-driven Production Index ships in phase 2; for now `production`
+ * is null and the table just surfaces market + level. The shape is
+ * already wired so phase 2 is purely a backfill.
+ *
+ * Cached 30m, tagged 'products' + 'milb-roster' — bust on either
+ * checklist mutations or a roster refresh.
+ */
+const _getProductSleeperBoardRaw = unstable_cache(
+  async (productId: string) => {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true, sport: true },
+    });
+    if (!product) return null;
+
+    // Distinct players in this product's checklist. Pull the raw rows
+    // so we can bucket priced cards by normalized name below.
+    const cards = await prisma.card.findMany({
+      where: { productId },
+      select: {
+        playerName: true,
+        psa10Cents: true,
+        ungradedCents: true,
+      },
+    });
+    if (cards.length === 0) return { product, rows: [], unmatched: 0 };
+
+    const norm = (s: string) =>
+      s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+    // Per-player market blend — mirrors getProspectSleeperIndex so a
+    // player's market read is consistent across surfaces. Eff price
+    // = max(psa10, raw × 6) to bring raw comps into the same scale.
+    const RAW_TO_GRADED = 6;
+    const eff = (psa: number | null, raw: number | null) =>
+      Math.max(psa ?? 0, (raw ?? 0) * RAW_TO_GRADED);
+    const median = (a: number[]) => {
+      if (a.length === 0) return 0;
+      const s = [...a].sort((x, y) => x - y);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+
+    type PlayerAgg = {
+      playerName: string;
+      normalizedName: string;
+      cardCount: number;
+      prices: number[];
+    };
+    const byPlayer = new Map<string, PlayerAgg>();
+    for (const c of cards) {
+      const key = norm(c.playerName);
+      const agg = byPlayer.get(key) ?? {
+        playerName: c.playerName,
+        normalizedName: key,
+        cardCount: 0,
+        prices: [],
+      };
+      agg.cardCount += 1;
+      const v = eff(c.psa10Cents, c.ungradedCents);
+      if (v > 0) agg.prices.push(v);
+      byPlayer.set(key, agg);
+    }
+
+    // Roster lookup keyed by normalized name. Roster is small (~8k
+    // rows) and read-once per request — no need for batched WHERE IN.
+    const rosterRows = await prisma.milbRoster.findMany({
+      select: {
+        normalizedName: true,
+        level: true,
+        teamName: true,
+        position: true,
+        age: true,
+        mlbPlayerId: true,
+      },
+    });
+    const rosterByName = new Map(
+      rosterRows.map((r) => [r.normalizedName, r]),
+    );
+
+    // Stat lines for every player on the roster. One read keyed on
+    // mlbPlayerId — we'll bucket by (id, group) below so two-way
+    // players surface both.
+    const playerIds = rosterRows.map((r) => r.mlbPlayerId);
+    const statLines =
+      playerIds.length > 0
+        ? await prisma.milbStatLine.findMany({
+            where: { mlbPlayerId: { in: playerIds } },
+            select: {
+              mlbPlayerId: true,
+              group: true,
+              level: true,
+              age: true,
+              gamesPlayed: true,
+              plateAppearances: true,
+              ops: true,
+              avg: true,
+              homeRuns: true,
+              inningsPitched: true,
+              era: true,
+              strikeOuts: true,
+              baseOnBalls: true,
+            },
+          })
+        : [];
+    type StatLine = (typeof statLines)[number];
+    const statsByPlayerId = new Map<number, { hitting?: StatLine; pitching?: StatLine }>();
+    for (const s of statLines) {
+      const existing = statsByPlayerId.get(s.mlbPlayerId) ?? {};
+      if (s.group === "hitting") existing.hitting = s;
+      else if (s.group === "pitching") existing.pitching = s;
+      statsByPlayerId.set(s.mlbPlayerId, existing);
+    }
+
+    // Pipeline rank lookup — same shape, lets us surface "ranked vs
+    // unranked" on the page so the user can filter out the
+    // already-obvious chases (Holliday, Made, etc.).
+    const rankings = await prisma.prospectRanking.findMany({
+      where: { sport: product.sport, source: "mlb-pipeline" },
+      select: { normalizedName: true, rank: true },
+    });
+    const rankByName = new Map(rankings.map((r) => [r.normalizedName, r.rank]));
+
+    // Normalize market across this product so the values are
+    // comparable within the break. Top guy in the product = 100.
+    const rawBlend = new Map<string, number>();
+    for (const [k, agg] of byPlayer) {
+      if (agg.prices.length === 0) continue;
+      const top = Math.max(...agg.prices);
+      const med = median(agg.prices);
+      rawBlend.set(k, Math.log(top + 1) * 0.6 + Math.log(med + 1) * 0.4);
+    }
+    const maxBlend = Math.max(0, ...rawBlend.values());
+
+    const rows = [...byPlayer.values()].map((agg) => {
+      const roster = rosterByName.get(agg.normalizedName);
+      const rank = rankByName.get(agg.normalizedName) ?? null;
+      const topPrice = agg.prices.length > 0 ? Math.max(...agg.prices) : null;
+      const medPrice =
+        agg.prices.length > 0 ? Math.round(median(agg.prices)) : null;
+      const blend = rawBlend.get(agg.normalizedName) ?? 0;
+      const market =
+        maxBlend > 0 && blend > 0
+          ? Math.max(1, Math.round((blend / maxBlend) * 100))
+          : null;
+
+      // Stat join + Production Index. Two-way players get both groups
+      // and we surface whichever gives the higher signal — matches how
+      // a buyer thinks about it ("what's he actually good at?").
+      const stats = roster ? statsByPlayerId.get(roster.mlbPlayerId) : undefined;
+      let production: number | null = null;
+      let statSummary: {
+        group: "hitting" | "pitching";
+        line: string;
+        gamesPlayed: number;
+      } | null = null;
+      if (stats?.hitting && roster) {
+        const h = stats.hitting;
+        const score = computeHitterProduction({
+          level: roster.level,
+          age: roster.age,
+          plateAppearances: h.plateAppearances,
+          ops: h.ops,
+        });
+        if (score != null) {
+          production = score;
+          statSummary = {
+            group: "hitting",
+            // Compact stat line: OPS / HR — what the user cares about
+            // at a glance for a hitter in a PYP context.
+            line: `${formatOps(h.ops)} OPS · ${h.homeRuns ?? 0} HR`,
+            gamesPlayed: h.gamesPlayed,
+          };
+        }
+      }
+      if (stats?.pitching && roster) {
+        const p = stats.pitching;
+        const score = computePitcherProduction({
+          level: roster.level,
+          age: roster.age,
+          inningsPitched: p.inningsPitched,
+          era: p.era,
+          strikeOuts: p.strikeOuts,
+          baseOnBalls: p.baseOnBalls,
+        });
+        // Two-way: keep whichever score is higher (the buyer chases
+        // their best discipline).
+        if (score != null && (production == null || score > production)) {
+          production = score;
+          statSummary = {
+            group: "pitching",
+            line: `${formatEra(p.era)} ERA · ${p.strikeOuts ?? 0} K`,
+            gamesPlayed: p.gamesPlayed,
+          };
+        }
+      }
+
+      // Sleeper Score = Production ÷ Market. High = playing well,
+      // market hasn't priced him in. Falls back to null when either
+      // signal is missing.
+      const sleeper =
+        production != null && market != null && market > 0
+          ? Math.round((production / market) * 100) / 100
+          : null;
+
+      return {
+        playerName: agg.playerName,
+        normalizedName: agg.normalizedName,
+        cardCount: agg.cardCount,
+        topPriceCents: topPrice,
+        medianPriceCents: medPrice,
+        market,
+        matched: roster != null,
+        level: roster?.level ?? null,
+        teamName: roster?.teamName ?? null,
+        position: roster?.position ?? null,
+        age: roster?.age ?? null,
+        mlbPlayerId: roster?.mlbPlayerId ?? null,
+        pipelineRank: rank,
+        production,
+        sleeper,
+        statLine: statSummary?.line ?? null,
+        statGroup: statSummary?.group ?? null,
+        gamesPlayed: statSummary?.gamesPlayed ?? null,
+      };
+    });
+
+    // Sort by sleeper score desc by default — that's the headline
+    // signal. Players without a sleeper number sort last by top price.
+    rows.sort((a, b) => {
+      const av = a.sleeper ?? -Infinity;
+      const bv = b.sleeper ?? -Infinity;
+      if (av !== bv) return bv - av;
+      return (b.topPriceCents ?? 0) - (a.topPriceCents ?? 0);
+    });
+
+    const unmatched = rows.filter((r) => !r.matched).length;
+    return { product, rows, unmatched };
+  },
+  // v2 cache key — a prior cache entry from Phase 1 (no roster/stats
+  // joined) was being served past the refresh that should have busted
+  // it, because revalidateTag is a no-op when called inside a render.
+  // Bumping the key guarantees a clean rebuild on next read.
+  ["product-sleeper-board", "v2"],
+  { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
+);
+export async function getProductSleeperBoard(productId: string) {
+  const result = await _getProductSleeperBoardRaw(productId);
+  return result ? reviveDates(result) : null;
 }
 
 /**

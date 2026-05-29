@@ -98,6 +98,31 @@ export const TRACKED_SLUGS: SlugMeta[] = [
     sport: "MLB",
     manufacturer: "Topps",
   },
+  // 2025 Topps Chrome Football — mirrors the baseball Chrome trio: base
+  // listing (with Sapphire stripped), separate Sapphire Selections, and
+  // separate Rookie Autograph slug. Same name+sport on the RA + base
+  // slugs so the auto cards merge into the same Product row, surfacing
+  // RC-auto chase cards on the Football Chase view the same way they
+  // do on the baseball side.
+  {
+    slug: "football-cards-2025-topps-chrome",
+    name: "2025 Topps Chrome Football",
+    sport: "NFL",
+    manufacturer: "Topps",
+    excludeVariation: /sapphire/i,
+  },
+  {
+    slug: "football-cards-2025-topps-chrome-sapphire-selections",
+    name: "2025 Topps Chrome Sapphire Selections Football",
+    sport: "NFL",
+    manufacturer: "Topps",
+  },
+  {
+    slug: "football-cards-2025-topps-chrome-rookie-autograph",
+    name: "2025 Topps Chrome Football",
+    sport: "NFL",
+    manufacturer: "Topps",
+  },
 ];
 
 export type ImportProgress = (line: string) => void;

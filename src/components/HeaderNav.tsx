@@ -23,6 +23,7 @@ const LINKS: Array<{ href: string; label: string }> = [
   { href: "/", label: "Products" },
   { href: "/hot", label: "🔥 Hot" },
   { href: "/chase", label: "Chase" },
+  { href: "/prospects", label: "Prospects" },
   { href: "/favorites", label: "Favorites" },
   { href: "/mixers", label: "Mixers" },
   { href: "/calendar", label: "Calendar" },
