@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { getProductSleeperBoard } from "@/lib/cached-queries";
 import {
   isRosterStale,
@@ -33,6 +34,9 @@ import SleepersTable from "./SleepersTable";
  * (>24h). After that, reads from cache. Daily cron will land later.
  */
 export const dynamic = "force-dynamic";
+// The first visit fetches ~8k MiLB roster entries + two batched
+// stats endpoints. Vercel's default 10s timeout was clipping it.
+export const maxDuration = 60;
 
 export default async function ProductSleepersPage({
   params,
@@ -41,25 +45,48 @@ export default async function ProductSleepersPage({
 }) {
   const { id } = await params;
 
-  // Seed roster + stats on cold start. The page is rendered server-
-  // side so this happens before the user sees anything — first visit
-  // is slower (~5-8s for both fetches in parallel) but every visit
-  // after is fast (24h cache).
-  let seedError: string | null = null;
+  // Seed roster + stats on cold start. Both fetches run in parallel;
+  // failures are surfaced explicitly per-job so we know which one
+  // bombed instead of catching them into a single opaque message.
+  let rosterError: string | null = null;
+  let statsError: string | null = null;
   const [rosterStale, statsStale] = await Promise.all([
     isRosterStale(),
     areStatsStale(),
   ]);
-  if (rosterStale || statsStale) {
+  if (rosterStale) {
     try {
-      await Promise.all([
-        rosterStale ? refreshMilbRoster() : Promise.resolve(),
-        statsStale ? refreshMilbStats() : Promise.resolve(),
-      ]);
+      await refreshMilbRoster();
     } catch (err) {
-      seedError = err instanceof Error ? err.message : String(err);
+      rosterError = err instanceof Error ? err.message : String(err);
+      console.error("[sleepers] roster refresh failed:", err);
     }
   }
+  if (statsStale) {
+    try {
+      await refreshMilbStats();
+    } catch (err) {
+      statsError = err instanceof Error ? err.message : String(err);
+      console.error("[sleepers] stats refresh failed:", err);
+    }
+  }
+
+  // Diagnostic counts — surfaced at the bottom of the page so we can
+  // see at a glance whether the DB actually has data. If roster /
+  // stats are zero here but the UI shows 0% match, the problem is
+  // the sync; if they're populated but match% is still 0, the bug
+  // is in the join.
+  const [rosterCount, statsCount, lastRosterSync, lastStatsSync] =
+    await Promise.all([
+      prisma.milbRoster.count(),
+      prisma.milbStatLine.count(),
+      prisma.milbRoster
+        .findFirst({ select: { lastSyncedAt: true }, orderBy: { lastSyncedAt: "desc" } })
+        .then((r) => r?.lastSyncedAt ?? null),
+      prisma.milbStatLine
+        .findFirst({ select: { lastSyncedAt: true }, orderBy: { lastSyncedAt: "desc" } })
+        .then((r) => r?.lastSyncedAt ?? null),
+    ]);
 
   const board = await getProductSleeperBoard(id);
   if (!board) notFound();
@@ -109,10 +136,21 @@ export default async function ProductSleepersPage({
         </div>
       </div>
 
-      {seedError && (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-900">
-          <span className="font-bold">Roster sync failed:</span> {seedError}{" "}
-          — showing whatever roster data is cached.
+      {(rosterError || statsError) && (
+        <div className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+          <div className="font-bold uppercase tracking-tight-2">
+            Sync errors
+          </div>
+          {rosterError && (
+            <div className="mt-1">
+              <span className="font-bold">Roster:</span> {rosterError}
+            </div>
+          )}
+          {statsError && (
+            <div className="mt-1">
+              <span className="font-bold">Stats:</span> {statsError}
+            </div>
+          )}
         </div>
       )}
 
@@ -140,6 +178,62 @@ export default async function ProductSleepersPage({
       </div>
 
       <SleepersTable rows={rows} />
+
+      <details className="rounded-2xl border border-slate-200 bg-white p-5">
+        <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-tight-2 text-slate-500">
+          Diagnostics
+        </summary>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-400">
+              MilbRoster rows
+            </div>
+            <div className="mt-0.5 font-bold tabular-nums text-ink">
+              {rosterCount.toLocaleString()}
+            </div>
+            <div className="text-[10px] text-slate-400">
+              {lastRosterSync
+                ? `synced ${new Date(lastRosterSync).toLocaleString()}`
+                : "never synced"}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-400">
+              MilbStatLine rows
+            </div>
+            <div className="mt-0.5 font-bold tabular-nums text-ink">
+              {statsCount.toLocaleString()}
+            </div>
+            <div className="text-[10px] text-slate-400">
+              {lastStatsSync
+                ? `synced ${new Date(lastStatsSync).toLocaleString()}`
+                : "never synced"}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-400">
+              Product players
+            </div>
+            <div className="mt-0.5 font-bold tabular-nums text-ink">
+              {rows.length.toLocaleString()}
+            </div>
+            <div className="text-[10px] text-slate-400">
+              distinct names in checklist
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-tight-2 text-slate-400">
+              Cache key
+            </div>
+            <div className="mt-0.5 font-mono text-[11px] text-slate-600">
+              v2
+            </div>
+            <div className="text-[10px] text-slate-400">
+              bumped to bust stale cache
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

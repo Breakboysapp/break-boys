@@ -63,27 +63,36 @@ export type MilbRosterEntry = {
 export async function fetchMilbRoster(
   season: number = new Date().getUTCFullYear(),
 ): Promise<MilbRosterEntry[]> {
-  const merged = new Map<number, MilbRosterEntry>();
+  // Parallel — the 5 sport-IDs are independent fetches against the
+  // same CDN. Was sequential before, which on cold start with a
+  // ~2-3s fetch per level was bumping into Vercel's default request
+  // timeout. Going parallel keeps the whole job under ~5s.
+  const results = await Promise.all(
+    LEVELS.map(async ({ sportId, level }) => {
+      const url = `${BASE}/sports/${sportId}/players?season=${season}`;
+      const res = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "BreakBoys/0.1 (+https://breakboys.app)",
+        },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        throw new Error(
+          `MLB Stats API ${sportId} (${level}) failed: ${res.status}`,
+        );
+      }
+      const data = (await res.json()) as SportPlayersResponse;
+      return { level, people: data.people ?? [] };
+    }),
+  );
 
-  for (const { sportId, level } of LEVELS) {
-    const url = `${BASE}/sports/${sportId}/players?season=${season}`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "BreakBoys/0.1 (+https://breakboys.app)" },
-      // statsapi caches well on their CDN; if the same season is
-      // fetched twice within a minute, the second call comes back
-      // from cache.
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      throw new Error(
-        `MLB Stats API ${sportId} (${level}) failed: ${res.status}`,
-      );
-    }
-    const data = (await res.json()) as SportPlayersResponse;
-    for (const p of data.people ?? []) {
-      // First level wins because LEVELS is ordered highest → lowest.
-      // A guy promoted AA → AAA mid-season will appear in both lists;
-      // we want him as "AAA".
+  // Highest-level-wins dedupe — iterate in the original LEVELS order
+  // (which is high → low) so a player who appears in AAA and AA reads
+  // as "AAA".
+  const merged = new Map<number, MilbRosterEntry>();
+  for (const { level, people } of results) {
+    for (const p of people) {
       if (merged.has(p.id)) continue;
       merged.set(p.id, {
         mlbPlayerId: p.id,

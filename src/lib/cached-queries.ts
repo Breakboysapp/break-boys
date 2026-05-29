@@ -633,7 +633,11 @@ const _getProductSleeperBoardRaw = unstable_cache(
     const unmatched = rows.filter((r) => !r.matched).length;
     return { product, rows, unmatched };
   },
-  ["product-sleeper-board"],
+  // v2 cache key — a prior cache entry from Phase 1 (no roster/stats
+  // joined) was being served past the refresh that should have busted
+  // it, because revalidateTag is a no-op when called inside a render.
+  // Bumping the key guarantees a clean rebuild on next read.
+  ["product-sleeper-board", "v2"],
   { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
 );
 export async function getProductSleeperBoard(productId: string) {
