@@ -18,30 +18,36 @@
 
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { productionIndex } from "@/lib/sleepers/refresh-stats";
+import {
+  productionBreakdown,
+  type ProductionBreakdown,
+} from "@/lib/sleepers/refresh-stats";
 
 const ONE_HOUR = 3600;
 
-// Pre-bound helpers so the call sites read clean. v1 math is in
-// productionIndex(); these just splat the args at it. Two-way
-// callers invoke each separately and keep the higher score.
-function computeHitterProduction(args: {
+// Per-group production helpers. Each returns the full breakdown
+// (score + per-component contributions) so the UI can render the
+// "OPS +30 · K% -18 · Age +5 = 67"-style tooltip on the Production
+// cell. Two-way callers run both and keep the higher score.
+function computeHitterBreakdown(args: {
   level: string;
   age: number | null;
   plateAppearances: number | null;
   ops: number | null;
-}): number | null {
-  return productionIndex({ group: "hitting", ...args });
+  strikeOuts: number | null;
+  baseOnBalls: number | null;
+}): ProductionBreakdown | null {
+  return productionBreakdown({ group: "hitting", ...args });
 }
-function computePitcherProduction(args: {
+function computePitcherBreakdown(args: {
   level: string;
   age: number | null;
   inningsPitched: number | null;
   era: number | null;
   strikeOuts: number | null;
   baseOnBalls: number | null;
-}): number | null {
-  return productionIndex({ group: "pitching", ...args });
+}): ProductionBreakdown | null {
+  return productionBreakdown({ group: "pitching", ...args });
 }
 
 function formatOps(ops: number | null): string {
@@ -545,6 +551,7 @@ const _getProductSleeperBoardRaw = unstable_cache(
       // a buyer thinks about it ("what's he actually good at?").
       const stats = roster ? statsByPlayerId.get(roster.mlbPlayerId) : undefined;
       let production: number | null = null;
+      let productionParts: ProductionBreakdown["parts"] | null = null;
       let statSummary: {
         group: "hitting" | "pitching";
         line: string;
@@ -552,26 +559,34 @@ const _getProductSleeperBoardRaw = unstable_cache(
       } | null = null;
       if (stats?.hitting && roster) {
         const h = stats.hitting;
-        const score = computeHitterProduction({
+        const breakdown = computeHitterBreakdown({
           level: roster.level,
           age: roster.age,
           plateAppearances: h.plateAppearances,
           ops: h.ops,
+          strikeOuts: h.strikeOuts,
+          baseOnBalls: h.baseOnBalls,
         });
-        if (score != null) {
-          production = score;
+        if (breakdown != null) {
+          production = breakdown.score;
+          productionParts = breakdown.parts;
+          // Hitter stat line surfaces K% — the new signal v2 layered in.
+          // ".810 OPS · 24% K · 8 HR" reads at a glance whether the
+          // bat has plate discipline or is a feast/famine swinger.
+          const kPct =
+            h.plateAppearances && h.plateAppearances > 0
+              ? `${Math.round(((h.strikeOuts ?? 0) / h.plateAppearances) * 100)}%`
+              : "—";
           statSummary = {
             group: "hitting",
-            // Compact stat line: OPS / HR — what the user cares about
-            // at a glance for a hitter in a PYP context.
-            line: `${formatOps(h.ops)} OPS · ${h.homeRuns ?? 0} HR`,
+            line: `${formatOps(h.ops)} OPS · ${kPct} K · ${h.homeRuns ?? 0} HR`,
             gamesPlayed: h.gamesPlayed,
           };
         }
       }
       if (stats?.pitching && roster) {
         const p = stats.pitching;
-        const score = computePitcherProduction({
+        const breakdown = computePitcherBreakdown({
           level: roster.level,
           age: roster.age,
           inningsPitched: p.inningsPitched,
@@ -579,13 +594,21 @@ const _getProductSleeperBoardRaw = unstable_cache(
           strikeOuts: p.strikeOuts,
           baseOnBalls: p.baseOnBalls,
         });
-        // Two-way: keep whichever score is higher (the buyer chases
-        // their best discipline).
-        if (score != null && (production == null || score > production)) {
-          production = score;
+        if (
+          breakdown != null &&
+          (production == null || breakdown.score > production)
+        ) {
+          production = breakdown.score;
+          productionParts = breakdown.parts;
+          // Pitcher stat line: ERA · K/9. K/9 is the readable
+          // velocity-of-strikeouts number scouts use.
+          const k9 =
+            p.inningsPitched && p.inningsPitched > 0
+              ? ((p.strikeOuts ?? 0) / p.inningsPitched) * 9
+              : null;
           statSummary = {
             group: "pitching",
-            line: `${formatEra(p.era)} ERA · ${p.strikeOuts ?? 0} K`,
+            line: `${formatEra(p.era)} ERA · ${k9 != null ? k9.toFixed(1) : "—"} K/9`,
             gamesPlayed: p.gamesPlayed,
           };
         }
@@ -614,6 +637,7 @@ const _getProductSleeperBoardRaw = unstable_cache(
         mlbPlayerId: roster?.mlbPlayerId ?? null,
         pipelineRank: rank,
         production,
+        productionParts,
         sleeper,
         statLine: statSummary?.line ?? null,
         statGroup: statSummary?.group ?? null,
@@ -637,7 +661,10 @@ const _getProductSleeperBoardRaw = unstable_cache(
   // joined) was being served past the refresh that should have busted
   // it, because revalidateTag is a no-op when called inside a render.
   // Bumping the key guarantees a clean rebuild on next read.
-  ["product-sleeper-board", "v2"],
+  // v3: production index reweighted (K%, BB%, stagnation, asymmetric
+  // K/BB), and rows now carry productionParts for the tooltip. Bump
+  // bypasses v2 cache so the new math takes effect on first visit.
+  ["product-sleeper-board", "v3"],
   { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
 );
 export async function getProductSleeperBoard(productId: string) {

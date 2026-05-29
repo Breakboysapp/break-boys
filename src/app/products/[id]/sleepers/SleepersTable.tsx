@@ -17,6 +17,7 @@ export type SleeperBoardRow = {
   mlbPlayerId: number | null;
   pipelineRank: number | null;
   production: number | null;
+  productionParts: Array<{ label: string; value: number }> | null;
   sleeper: number | null;
   statLine: string | null;
   statGroup: "hitting" | "pitching" | null;
@@ -34,6 +35,35 @@ type SortKey =
   | "rank";
 
 type View = "all" | "sleepers" | "unranked" | "ranked" | "unmatched";
+type GroupFilter = "all" | "batters" | "pitchers";
+
+// Position regex used to classify a row when we don't have a stat
+// line yet to confirm group. UTL/INF/IF/OF fall into the hitter
+// bucket; SP/RP/P/TWP into the pitcher bucket.
+const HITTER_POS = /^(C|1B|2B|3B|SS|LF|CF|RF|OF|DH|UTL|INF|IF)$/i;
+const PITCHER_POS = /^(RHP|LHP|SP|RP|P|TWP)$/i;
+
+const GROUP_TABS: Array<{
+  key: GroupFilter;
+  label: string;
+  filter: (r: SleeperBoardRow) => boolean;
+}> = [
+  { key: "all", label: "Both", filter: () => true },
+  {
+    key: "batters",
+    label: "Batters",
+    filter: (r) =>
+      r.statGroup === "hitting" ||
+      (r.statGroup == null && !!r.position && HITTER_POS.test(r.position)),
+  },
+  {
+    key: "pitchers",
+    label: "Pitchers",
+    filter: (r) =>
+      r.statGroup === "pitching" ||
+      (r.statGroup == null && !!r.position && PITCHER_POS.test(r.position)),
+  },
+];
 
 const LEVEL_GROUPS: Array<{ label: string; matches: string[] | null }> = [
   { label: "All levels", matches: null },
@@ -94,12 +124,15 @@ function formatUsd(cents: number | null): string {
 
 export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
   const [view, setView] = useState<View>("all");
+  const [group, setGroup] = useState<GroupFilter>("all");
   const [sort, setSort] = useState<SortKey>("sleeper");
   const [query, setQuery] = useState("");
   const [levelGroup, setLevelGroup] = useState<string>("All levels");
   const [pypRate, setPypRate] = useState<string>("");
 
   const activeTab = VIEW_TABS.find((t) => t.key === view) ?? VIEW_TABS[0];
+  const activeGroup =
+    GROUP_TABS.find((g) => g.key === group) ?? GROUP_TABS[0];
   const pypCents = (() => {
     const n = Number(pypRate);
     if (!Number.isFinite(n) || n <= 0) return null;
@@ -108,16 +141,17 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const grp = LEVEL_GROUPS.find((g) => g.label === levelGroup);
+    const lvlGrp = LEVEL_GROUPS.find((g) => g.label === levelGroup);
     return rows.filter((r) => {
       if (!activeTab.filter(r)) return false;
+      if (!activeGroup.filter(r)) return false;
       if (q && !r.playerName.toLowerCase().includes(q)) return false;
-      if (grp?.matches && (r.level == null || !grp.matches.includes(r.level))) {
+      if (lvlGrp?.matches && (r.level == null || !lvlGrp.matches.includes(r.level))) {
         return false;
       }
       return true;
     });
-  }, [rows, query, levelGroup, activeTab]);
+  }, [rows, query, levelGroup, activeTab, activeGroup]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -164,9 +198,15 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
 
   return (
     <section className="space-y-3">
+      {/* View tabs (All / 💎 Sleepers / Unranked / Top 100 / No roster).
+          Counts reflect both the view filter AND the active group, so
+          switching to Pitchers makes "💎 Sleepers" mean "💎 pitcher
+          sleepers." */}
       <div className="flex flex-wrap gap-2">
         {VIEW_TABS.map((tab) => {
-          const count = rows.filter(tab.filter).length;
+          const count = rows.filter(
+            (r) => tab.filter(r) && activeGroup.filter(r),
+          ).length;
           const active = tab.key === view;
           return (
             <button
@@ -177,6 +217,41 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                 active
                   ? "bg-ink text-white"
                   : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {tab.label}
+              <span
+                className={`ml-1.5 inline-block tabular-nums ${
+                  active ? "text-white/70" : "text-slate-400"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Group tabs (Both / Batters / Pitchers). Stacked under the
+          view tabs because mixing them in one row gets unwieldy on
+          mobile and the dimensions are conceptually distinct: the
+          view tabs filter "what kind of opportunity," the group tabs
+          filter "what kind of player." */}
+      <div className="flex flex-wrap gap-2">
+        {GROUP_TABS.map((tab) => {
+          const count = rows.filter(
+            (r) => tab.filter(r) && activeTab.filter(r),
+          ).length;
+          const active = tab.key === group;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setGroup(tab.key)}
+              className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-tight-2 ${
+                active
+                  ? "bg-accent text-white"
+                  : "bg-white text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
               }`}
             >
               {tab.label}
@@ -368,7 +443,21 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                           <span className="text-xs text-slate-300">—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
+                      <td
+                        className="px-3 py-2 text-right tabular-nums"
+                        title={
+                          r.productionParts
+                            ? r.productionParts
+                                .map(
+                                  (p) =>
+                                    `${p.label}: ${p.value >= 0 ? "+" : ""}${p.value}`,
+                                )
+                                .join("\n") + `\n= ${r.production}`
+                            : r.production == null
+                              ? "Sample too small — under 75 PA (hitter) or 15 IP (pitcher)."
+                              : undefined
+                        }
+                      >
                         {r.production != null ? (
                           <span
                             className={
