@@ -361,3 +361,50 @@ model MilbRoster {
   @@index([normalizedName])
   @@index([level])
 }
+
+// Per-player season stat line, one row per (mlbPlayerId, season, group).
+// Populated alongside MilbRoster from MLB Stats API batch endpoints
+// (statsapi.mlb.com/api/v1/stats?stats=season&group=...&sportIds=...).
+//
+// Hitting and pitching are separate rows (two-way players get one
+// of each). The set of fields covers both groups — hitting rows
+// leave pitching fields null and vice versa.
+//
+// Powers the Production Index on /products/[id]/sleepers — combined
+// with MilbRoster.level and .age, this is what lets us surface
+// "raking in AA but card market hasn't caught up."
+model MilbStatLine {
+  id             String   @id @default(cuid())
+  mlbPlayerId    Int
+  season         Int
+  group          String   // "hitting" | "pitching"
+  level          String   // "AAA" | "AA" | "A+" | "A" | "ROK"
+  teamName       String?
+  // Shared
+  gamesPlayed    Int
+  age            Int?
+  // Hitting
+  plateAppearances Int?
+  atBats         Int?
+  hits           Int?
+  homeRuns       Int?
+  baseOnBalls   Int?
+  strikeOuts    Int?
+  // Stored as floats (0-something) — ".261" parses to 0.261.
+  avg            Float?
+  obp            Float?
+  slg            Float?
+  ops            Float?
+  // Pitching
+  inningsPitched Float?
+  earnedRuns     Int?
+  era            Float?
+  whip           Float?
+  // Sync timestamp; mirrors MilbRoster.lastSyncedAt for the same
+  // freshness window.
+  lastSyncedAt   DateTime @default(now())
+
+  @@unique([mlbPlayerId, season, group])
+  @@index([group, level])
+  @@index([mlbPlayerId])
+}

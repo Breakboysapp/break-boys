@@ -5,6 +5,10 @@ import {
   isRosterStale,
   refreshMilbRoster,
 } from "@/lib/sleepers/refresh-roster";
+import {
+  areStatsStale,
+  refreshMilbStats,
+} from "@/lib/sleepers/refresh-stats";
 import SleepersTable from "./SleepersTable";
 
 /**
@@ -37,13 +41,21 @@ export default async function ProductSleepersPage({
 }) {
   const { id } = await params;
 
-  // Seed roster on cold start. The page is rendered server-side so
-  // this happens before the user sees anything — first visit is
-  // slower (~3-5s for the fetch) but every visit after is fast.
+  // Seed roster + stats on cold start. The page is rendered server-
+  // side so this happens before the user sees anything — first visit
+  // is slower (~5-8s for both fetches in parallel) but every visit
+  // after is fast (24h cache).
   let seedError: string | null = null;
-  if (await isRosterStale()) {
+  const [rosterStale, statsStale] = await Promise.all([
+    isRosterStale(),
+    areStatsStale(),
+  ]);
+  if (rosterStale || statsStale) {
     try {
-      await refreshMilbRoster();
+      await Promise.all([
+        rosterStale ? refreshMilbRoster() : Promise.resolve(),
+        statsStale ? refreshMilbStats() : Promise.resolve(),
+      ]);
     } catch (err) {
       seedError = err instanceof Error ? err.message : String(err);
     }
@@ -56,8 +68,16 @@ export default async function ProductSleepersPage({
   const matched = rows.length - unmatched;
   const matchPct = rows.length > 0 ? Math.round((matched / rows.length) * 100) : 0;
   const ranked = rows.filter((r) => r.pipelineRank != null).length;
-  const unrankedWithMarket = rows.filter(
-    (r) => r.pipelineRank == null && (r.topPriceCents ?? 0) > 0,
+  const withProduction = rows.filter((r) => r.production != null).length;
+  // Production sleeper = high production score, modest market. This
+  // is the number that answers the user's original "playing well but
+  // market hasn't noticed" question.
+  const productionSleepers = rows.filter(
+    (r) =>
+      r.production != null &&
+      r.production >= 65 &&
+      (r.market ?? 0) <= 40 &&
+      (r.topPriceCents ?? 0) > 0,
   ).length;
 
   return (
@@ -108,14 +128,14 @@ export default async function ProductSleepersPage({
           sub={`${matched.toLocaleString()} of ${rows.length.toLocaleString()}`}
         />
         <KpiCard
-          label="Pipeline ranked"
-          value={ranked.toLocaleString()}
-          sub="on MLB Top 100"
+          label="With stats"
+          value={withProduction.toLocaleString()}
+          sub={`${ranked} on Pipeline Top 100`}
         />
         <KpiCard
-          label="Unranked w/ market"
-          value={unrankedWithMarket.toLocaleString()}
-          sub="potential arbitrage"
+          label="Production sleepers"
+          value={productionSleepers.toLocaleString()}
+          sub="high prod · low market"
         />
       </div>
 

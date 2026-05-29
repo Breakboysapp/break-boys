@@ -18,9 +18,14 @@ export type SleeperBoardRow = {
   pipelineRank: number | null;
   production: number | null;
   sleeper: number | null;
+  statLine: string | null;
+  statGroup: "hitting" | "pitching" | null;
+  gamesPlayed: number | null;
 };
 
 type SortKey =
+  | "sleeper"
+  | "production"
   | "topPrice"
   | "medianPrice"
   | "market"
@@ -28,7 +33,7 @@ type SortKey =
   | "name"
   | "rank";
 
-type View = "all" | "unranked" | "ranked" | "unmatched";
+type View = "all" | "sleepers" | "unranked" | "ranked" | "unmatched";
 
 const LEVEL_GROUPS: Array<{ label: string; matches: string[] | null }> = [
   { label: "All levels", matches: null },
@@ -41,23 +46,42 @@ const VIEW_TABS: Array<{
   key: View;
   label: string;
   filter: (r: SleeperBoardRow) => boolean;
+  defaultSort: SortKey;
 }> = [
-  { key: "all", label: "All", filter: () => true },
+  { key: "all", label: "All", filter: () => true, defaultSort: "sleeper" },
+  {
+    // The headline view — what you came here to find. Production-driven
+    // sleepers = playing well at level but card market hasn't priced
+    // them in. Tuned floors: ≥65 production, ≤40 market, real market
+    // exists (so we exclude "no priced cards = artificially infinite
+    // sleeper score").
+    key: "sleepers",
+    label: "💎 Sleepers",
+    filter: (r) =>
+      r.production != null &&
+      r.production >= 65 &&
+      (r.market ?? 0) <= 40 &&
+      (r.topPriceCents ?? 0) > 0,
+    defaultSort: "sleeper",
+  },
   {
     key: "unranked",
     label: "Unranked",
     filter: (r) =>
       r.pipelineRank == null && (r.topPriceCents ?? 0) > 0,
+    defaultSort: "topPrice",
   },
   {
     key: "ranked",
     label: "Top 100",
     filter: (r) => r.pipelineRank != null,
+    defaultSort: "rank",
   },
   {
     key: "unmatched",
     label: "No roster",
     filter: (r) => !r.matched,
+    defaultSort: "topPrice",
   },
 ];
 
@@ -70,7 +94,7 @@ function formatUsd(cents: number | null): string {
 
 export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
   const [view, setView] = useState<View>("all");
-  const [sort, setSort] = useState<SortKey>("topPrice");
+  const [sort, setSort] = useState<SortKey>("sleeper");
   const [query, setQuery] = useState("");
   const [levelGroup, setLevelGroup] = useState<string>("All levels");
   const [pypRate, setPypRate] = useState<string>("");
@@ -99,6 +123,17 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
     const arr = [...filtered];
     arr.sort((a, b) => {
       switch (sort) {
+        case "sleeper": {
+          const av = a.sleeper ?? -Infinity;
+          const bv = b.sleeper ?? -Infinity;
+          if (av !== bv) return bv - av;
+          return (b.topPriceCents ?? 0) - (a.topPriceCents ?? 0);
+        }
+        case "production": {
+          const av = a.production ?? -Infinity;
+          const bv = b.production ?? -Infinity;
+          return bv - av;
+        }
         case "topPrice":
           return (b.topPriceCents ?? 0) - (a.topPriceCents ?? 0);
         case "medianPrice":
@@ -108,7 +143,6 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
         case "cardCount":
           return b.cardCount - a.cardCount;
         case "rank": {
-          // Ranked first, sorted ascending. Unranked last.
           const ar = a.pipelineRank ?? Infinity;
           const br = b.pipelineRank ?? Infinity;
           return ar - br;
@@ -122,6 +156,12 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
     return arr;
   }, [filtered, sort]);
 
+  function switchView(v: View) {
+    setView(v);
+    const tab = VIEW_TABS.find((t) => t.key === v);
+    if (tab) setSort(tab.defaultSort);
+  }
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap gap-2">
@@ -132,7 +172,7 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
             <button
               key={tab.key}
               type="button"
-              onClick={() => setView(tab.key)}
+              onClick={() => switchView(tab.key)}
               className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-tight-2 ${
                 active
                   ? "bg-ink text-white"
@@ -216,22 +256,22 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                   Level · Team
                 </th>
                 <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-tight-2">
-                  Age
+                  Stat line
                 </th>
                 <HeaderCell current={sort} k="rank" onClick={setSort} align="left">
                   Pipeline
                 </HeaderCell>
-                <HeaderCell current={sort} k="cardCount" onClick={setSort}>
-                  Cards
-                </HeaderCell>
                 <HeaderCell current={sort} k="topPrice" onClick={setSort}>
                   Top
                 </HeaderCell>
-                <HeaderCell current={sort} k="medianPrice" onClick={setSort}>
-                  Median
-                </HeaderCell>
                 <HeaderCell current={sort} k="market" onClick={setSort}>
                   Market
+                </HeaderCell>
+                <HeaderCell current={sort} k="production" onClick={setSort}>
+                  Prod
+                </HeaderCell>
+                <HeaderCell current={sort} k="sleeper" onClick={setSort}>
+                  Sleeper
                 </HeaderCell>
                 {pypCents != null && (
                   <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-tight-2">
@@ -247,7 +287,8 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                     colSpan={pypCents != null ? 10 : 9}
                     className="px-4 py-8 text-center text-xs text-slate-400"
                   >
-                    No players match these filters.
+                    No players match these filters. Try the All tab or
+                    clear search.
                   </td>
                 </tr>
               ) : (
@@ -271,21 +312,40 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                       </td>
                       <td className="px-3 py-2 text-xs">
                         {r.matched ? (
-                          <span className="text-slate-700">
-                            <span className="font-bold">{r.level}</span>
-                            {r.teamName ? (
-                              <span className="text-slate-500">
-                                {" "}
-                                · {r.teamName}
-                              </span>
-                            ) : null}
-                          </span>
+                          <div>
+                            <div className="text-slate-700">
+                              <span className="font-bold">{r.level}</span>
+                              {r.teamName ? (
+                                <span className="text-slate-500">
+                                  {" "}
+                                  · {r.teamName}
+                                </span>
+                              ) : null}
+                            </div>
+                            {r.age != null && (
+                              <div className="text-[10px] text-slate-400">
+                                age {r.age}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-slate-300">no roster match</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-xs tabular-nums text-slate-500">
-                        {r.age ?? "—"}
+                      <td className="px-3 py-2 text-xs">
+                        {r.statLine ? (
+                          <div>
+                            <div className="font-semibold tabular-nums text-slate-700">
+                              {r.statLine}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {r.gamesPlayed ?? "—"}{" "}
+                              {r.statGroup === "pitching" ? "G" : "GP"}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-xs">
                         {r.pipelineRank != null ? (
@@ -296,19 +356,54 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                           <span className="text-slate-300">—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums text-slate-500">
-                        {r.cardCount}
-                      </td>
                       <td className="px-3 py-2 text-right text-sm tabular-nums font-bold text-ink">
                         {formatUsd(r.topPriceCents)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums text-slate-500">
-                        {formatUsd(r.medianPriceCents)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
                         {r.market != null ? (
                           <span className="text-xs font-bold text-ink">
                             {r.market}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {r.production != null ? (
+                          <span
+                            className={
+                              r.production >= 75
+                                ? "text-sm font-extrabold text-emerald-600"
+                                : r.production >= 50
+                                  ? "text-sm font-bold text-ink"
+                                  : "text-sm font-bold text-slate-400"
+                            }
+                          >
+                            {r.production}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td
+                        className="px-3 py-2 text-right tabular-nums"
+                        title={
+                          r.sleeper != null
+                            ? `Production ${r.production} ÷ Market ${r.market}`
+                            : "Need both production and market signal"
+                        }
+                      >
+                        {r.sleeper != null ? (
+                          <span
+                            className={
+                              r.sleeper >= 2
+                                ? "text-sm font-extrabold text-emerald-600"
+                                : r.sleeper >= 1
+                                  ? "text-sm font-bold text-ink"
+                                  : "text-sm font-bold text-slate-400"
+                            }
+                          >
+                            {r.sleeper.toFixed(2)}
                           </span>
                         ) : (
                           <span className="text-xs text-slate-300">—</span>

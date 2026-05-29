@@ -18,8 +18,42 @@
 
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { productionIndex } from "@/lib/sleepers/refresh-stats";
 
 const ONE_HOUR = 3600;
+
+// Pre-bound helpers so the call sites read clean. v1 math is in
+// productionIndex(); these just splat the args at it. Two-way
+// callers invoke each separately and keep the higher score.
+function computeHitterProduction(args: {
+  level: string;
+  age: number | null;
+  plateAppearances: number | null;
+  ops: number | null;
+}): number | null {
+  return productionIndex({ group: "hitting", ...args });
+}
+function computePitcherProduction(args: {
+  level: string;
+  age: number | null;
+  inningsPitched: number | null;
+  era: number | null;
+  strikeOuts: number | null;
+  baseOnBalls: number | null;
+}): number | null {
+  return productionIndex({ group: "pitching", ...args });
+}
+
+function formatOps(ops: number | null): string {
+  if (ops == null) return "—";
+  // .261 style — leading dot, three-decimal precision.
+  const s = ops.toFixed(3);
+  return s.startsWith("0") ? s.slice(1) : s;
+}
+function formatEra(era: number | null): string {
+  if (era == null) return "—";
+  return era.toFixed(2);
+}
 
 /**
  * unstable_cache serializes its return value through Next.js's data
@@ -440,6 +474,40 @@ const _getProductSleeperBoardRaw = unstable_cache(
       rosterRows.map((r) => [r.normalizedName, r]),
     );
 
+    // Stat lines for every player on the roster. One read keyed on
+    // mlbPlayerId — we'll bucket by (id, group) below so two-way
+    // players surface both.
+    const playerIds = rosterRows.map((r) => r.mlbPlayerId);
+    const statLines =
+      playerIds.length > 0
+        ? await prisma.milbStatLine.findMany({
+            where: { mlbPlayerId: { in: playerIds } },
+            select: {
+              mlbPlayerId: true,
+              group: true,
+              level: true,
+              age: true,
+              gamesPlayed: true,
+              plateAppearances: true,
+              ops: true,
+              avg: true,
+              homeRuns: true,
+              inningsPitched: true,
+              era: true,
+              strikeOuts: true,
+              baseOnBalls: true,
+            },
+          })
+        : [];
+    type StatLine = (typeof statLines)[number];
+    const statsByPlayerId = new Map<number, { hitting?: StatLine; pitching?: StatLine }>();
+    for (const s of statLines) {
+      const existing = statsByPlayerId.get(s.mlbPlayerId) ?? {};
+      if (s.group === "hitting") existing.hitting = s;
+      else if (s.group === "pitching") existing.pitching = s;
+      statsByPlayerId.set(s.mlbPlayerId, existing);
+    }
+
     // Pipeline rank lookup — same shape, lets us surface "ranked vs
     // unranked" on the page so the user can filter out the
     // already-obvious chases (Holliday, Made, etc.).
@@ -471,6 +539,66 @@ const _getProductSleeperBoardRaw = unstable_cache(
         maxBlend > 0 && blend > 0
           ? Math.max(1, Math.round((blend / maxBlend) * 100))
           : null;
+
+      // Stat join + Production Index. Two-way players get both groups
+      // and we surface whichever gives the higher signal — matches how
+      // a buyer thinks about it ("what's he actually good at?").
+      const stats = roster ? statsByPlayerId.get(roster.mlbPlayerId) : undefined;
+      let production: number | null = null;
+      let statSummary: {
+        group: "hitting" | "pitching";
+        line: string;
+        gamesPlayed: number;
+      } | null = null;
+      if (stats?.hitting && roster) {
+        const h = stats.hitting;
+        const score = computeHitterProduction({
+          level: roster.level,
+          age: roster.age,
+          plateAppearances: h.plateAppearances,
+          ops: h.ops,
+        });
+        if (score != null) {
+          production = score;
+          statSummary = {
+            group: "hitting",
+            // Compact stat line: OPS / HR — what the user cares about
+            // at a glance for a hitter in a PYP context.
+            line: `${formatOps(h.ops)} OPS · ${h.homeRuns ?? 0} HR`,
+            gamesPlayed: h.gamesPlayed,
+          };
+        }
+      }
+      if (stats?.pitching && roster) {
+        const p = stats.pitching;
+        const score = computePitcherProduction({
+          level: roster.level,
+          age: roster.age,
+          inningsPitched: p.inningsPitched,
+          era: p.era,
+          strikeOuts: p.strikeOuts,
+          baseOnBalls: p.baseOnBalls,
+        });
+        // Two-way: keep whichever score is higher (the buyer chases
+        // their best discipline).
+        if (score != null && (production == null || score > production)) {
+          production = score;
+          statSummary = {
+            group: "pitching",
+            line: `${formatEra(p.era)} ERA · ${p.strikeOuts ?? 0} K`,
+            gamesPlayed: p.gamesPlayed,
+          };
+        }
+      }
+
+      // Sleeper Score = Production ÷ Market. High = playing well,
+      // market hasn't priced him in. Falls back to null when either
+      // signal is missing.
+      const sleeper =
+        production != null && market != null && market > 0
+          ? Math.round((production / market) * 100) / 100
+          : null;
+
       return {
         playerName: agg.playerName,
         normalizedName: agg.normalizedName,
@@ -478,33 +606,35 @@ const _getProductSleeperBoardRaw = unstable_cache(
         topPriceCents: topPrice,
         medianPriceCents: medPrice,
         market,
-        // Roster join — may be null if no match (released, retired,
-        // not on a 40-man-equivalent MiLB roster, or a name spelling
-        // we couldn't normalize across sources).
         matched: roster != null,
         level: roster?.level ?? null,
         teamName: roster?.teamName ?? null,
         position: roster?.position ?? null,
         age: roster?.age ?? null,
         mlbPlayerId: roster?.mlbPlayerId ?? null,
-        // Pipeline rank if present — used to filter "ranked" out so
-        // the table surfaces under-the-radar guys.
         pipelineRank: rank,
-        // Phase 2 fields, null for now.
-        production: null as number | null,
-        sleeper: null as number | null,
+        production,
+        sleeper,
+        statLine: statSummary?.line ?? null,
+        statGroup: statSummary?.group ?? null,
+        gamesPlayed: statSummary?.gamesPlayed ?? null,
       };
     });
 
-    // Sort by top-price desc so the biggest names lead by default.
-    // The page lets the user re-sort once it's loaded.
-    rows.sort((a, b) => (b.topPriceCents ?? 0) - (a.topPriceCents ?? 0));
+    // Sort by sleeper score desc by default — that's the headline
+    // signal. Players without a sleeper number sort last by top price.
+    rows.sort((a, b) => {
+      const av = a.sleeper ?? -Infinity;
+      const bv = b.sleeper ?? -Infinity;
+      if (av !== bv) return bv - av;
+      return (b.topPriceCents ?? 0) - (a.topPriceCents ?? 0);
+    });
 
     const unmatched = rows.filter((r) => !r.matched).length;
     return { product, rows, unmatched };
   },
   ["product-sleeper-board"],
-  { revalidate: 30 * 60, tags: ["products", "milb-roster"] },
+  { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
 );
 export async function getProductSleeperBoard(productId: string) {
   const result = await _getProductSleeperBoardRaw(productId);
