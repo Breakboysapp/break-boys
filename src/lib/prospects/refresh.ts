@@ -72,7 +72,15 @@ export async function refreshMlbPipelineTop100(): Promise<ProspectsRefreshResult
     prisma.prospectRanking.createMany({ data: rows }),
   ]);
 
-  revalidateTag("prospects");
+  // Best-effort. When called from inside a Server Component render
+  // (the /prospects auto-seed path), Next.js throws — that's expected
+  // and harmless. The DB writes are committed; the next cached read
+  // for this productId is a fresh miss anyway.
+  try {
+    revalidateTag("prospects");
+  } catch {
+    // ignored
+  }
 
   const carriedOver = rows.filter((r) => r.previousRank !== null).length;
   return {
