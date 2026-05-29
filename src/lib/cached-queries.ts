@@ -12,8 +12,8 @@
  * blow-up that took prod down on 2026-05-16.
  *
  * Mutation routes can call `revalidateTag(...)` to bust a specific
- * slice when they want immediate freshness — see
- * src/app/api/products/[id]/checklist/route.ts and friends.
+ * slice when they want immediate freshness — e.g. the prospects
+ * refresh, the pricing cron, and the favorites endpoint.
  */
 
 import { unstable_cache } from "next/cache";

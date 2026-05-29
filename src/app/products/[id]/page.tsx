@@ -18,7 +18,6 @@ import {
 } from "@/lib/international-anime";
 import { rollupChasePlayers } from "@/lib/chase-rollup";
 import { buildTeamExpandedRows } from "@/lib/team-expanded-rollup";
-import ChecklistUpload from "./ChecklistUpload";
 import TeamPriceEditor from "./TeamPriceEditor";
 import FavoriteButton from "./FavoriteButton";
 import ProductFormatsBar from "./ProductFormatsBar";
@@ -572,7 +571,7 @@ export default async function ProductPage({
       )}
 
       {hasNoChecklist ? (
-        <ComingSoon productId={product.id} />
+        <ComingSoon />
       ) : (
         <>
           {/*
@@ -620,20 +619,6 @@ export default async function ProductPage({
             </section>
           )}
 
-          {/* Checklist import lives at the bottom — once the product is
-              loaded, this is rarely interacted with, so it shouldn't dominate
-              the top of the page. Collapsed by default. */}
-          <details className="rounded-2xl border border-slate-200 bg-white">
-            <summary className="cursor-pointer px-5 py-3 text-[11px] font-bold uppercase tracking-tight-2 text-slate-500 hover:text-ink">
-              Checklist · {product._count.cards} cards · re-import or replace
-            </summary>
-            <div className="border-t border-slate-200 p-5">
-              <ChecklistUpload
-                productId={product.id}
-                hasExistingCards={product._count.cards > 0}
-              />
-            </div>
-          </details>
         </>
       )}
     </div>
@@ -770,31 +755,20 @@ function computeTeamMarketScores(
  * Keeps the checklist import UI accessible below the banner so the user can
  * retry once Beckett (or another source) publishes the data.
  */
-function ComingSoon({ productId }: { productId: string }) {
+function ComingSoon() {
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-12 text-center">
-        <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
-          Status
-        </div>
-        <div className="mt-2 text-3xl font-extrabold tracking-tight-3">
-          CHECKLIST COMING SOON
-        </div>
-        <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">
-          We couldn&apos;t find a published checklist for this product yet.
-          Beckett and other sources usually post the full <code>.xlsx</code>{" "}
-          closer to release date — we&apos;ll pick it up automatically. If you
-          already have one, you can upload a CSV below.
-        </p>
+    <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-12 text-center">
+      <div className="text-[11px] font-bold uppercase tracking-tight-2 text-accent">
+        Status
       </div>
-      <details className="rounded-2xl border border-slate-200 bg-white">
-        <summary className="cursor-pointer px-5 py-3 text-[11px] font-bold uppercase tracking-tight-2 text-slate-500">
-          Have a CSV? Upload it now
-        </summary>
-        <div className="border-t border-slate-200 p-5">
-          <ChecklistUpload productId={productId} hasExistingCards={false} />
-        </div>
-      </details>
+      <div className="mt-2 text-3xl font-extrabold tracking-tight-3">
+        CHECKLIST COMING SOON
+      </div>
+      <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">
+        We couldn&apos;t find a published checklist for this product yet.
+        Beckett and other sources usually post the full <code>.xlsx</code>{" "}
+        closer to release date — we&apos;ll pick it up automatically.
+      </p>
     </div>
   );
 }
