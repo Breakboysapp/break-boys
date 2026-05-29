@@ -781,15 +781,15 @@ function ComingSoon({ productId }: { productId: string }) {
           CHECKLIST COMING SOON
         </div>
         <p className="mx-auto mt-3 max-w-md text-sm text-slate-500">
-          We couldn't find a published checklist for this product yet. Beckett
-          and other sources usually post the full <code>.xlsx</code> closer to
-          release date. Try again later, or paste a URL below if you've found
-          one elsewhere.
+          We couldn&apos;t find a published checklist for this product yet.
+          Beckett and other sources usually post the full <code>.xlsx</code>{" "}
+          closer to release date — we&apos;ll pick it up automatically. If you
+          already have one, you can upload a CSV below.
         </p>
       </div>
       <details className="rounded-2xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-5 py-3 text-[11px] font-bold uppercase tracking-tight-2 text-slate-500">
-          Have a checklist URL? Import it now
+          Have a CSV? Upload it now
         </summary>
         <div className="border-t border-slate-200 p-5">
           <ChecklistUpload productId={productId} hasExistingCards={false} />
