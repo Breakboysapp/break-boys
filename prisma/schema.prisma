@@ -326,15 +326,20 @@ model ProspectRanking {
   @@index([normalizedName])
 }
 
-// MiLB roster cache — one row per active minor-leaguer per sync.
-// Populated from MLB Stats API (statsapi.mlb.com/api/v1/sports/{id}/players)
-// across sportId 11 (AAA), 12 (AA), 13 (A+), 14 (A), 16 (Rookie).
+// Pro roster cache — one row per active player per sync. Despite the
+// "Milb" name (kept to avoid a destructive rename), it now spans the
+// full pro ladder. Populated from MLB Stats API
+// (statsapi.mlb.com/api/v1/sports/{id}/players) across sportId 1 (MLB),
+// 11 (AAA), 12 (AA), 13 (A+), 14 (A), 16 (Rookie). A player who's been
+// called up dedupes to his highest level (MLB).
 //
 // Powers the /products/[id]/sleepers page: we join a product's
 // checklist player names against this table to surface each
-// prospect's *current* level + org + age — so a Bowman 2026 buyer
-// can see who's playing where right now, regardless of where they
-// were ranked preseason. v2 adds per-player stat lines on top.
+// player's *current* level + org + age — so a buyer can see who's
+// playing where right now. Adding the MLB level is what lets flagship
+// veterans (Topps Series 1/2, etc.) match instead of falling through
+// as "no roster match." Per-player stat lines join on top via
+// MilbStatLine.
 //
 // Wipe-and-replace per refresh (driven by lastSyncedAt). Players
 // who change levels mid-season will simply appear under the new
@@ -347,7 +352,7 @@ model MilbRoster {
   // Lowercase + diacritic-stripped via normalizeKey() — joins
   // cleanly against Card.playerName and ProspectRanking.normalizedName.
   normalizedName String
-  // "AAA" | "AA" | "A+" | "A" | "ROK" — derived from sportId.
+  // "MLB" | "AAA" | "AA" | "A+" | "A" | "ROK" — derived from sportId.
   level          String
   teamId         Int?
   teamName       String?
@@ -364,7 +369,9 @@ model MilbRoster {
 
 // Per-player season stat line, one row per (mlbPlayerId, season, group).
 // Populated alongside MilbRoster from MLB Stats API batch endpoints
-// (statsapi.mlb.com/api/v1/stats?stats=season&group=...&sportIds=...).
+// (statsapi.mlb.com/api/v1/stats?stats=season&group=...&sportIds=1,11,12,13,14,16).
+// Includes the MLB level (sportId 1) so flagship veterans get a
+// Production Index, not just MiLB prospects.
 //
 // Hitting and pitching are separate rows (two-way players get one
 // of each). The set of fields covers both groups — hitting rows
@@ -378,7 +385,7 @@ model MilbStatLine {
   mlbPlayerId    Int
   season         Int
   group          String   // "hitting" | "pitching"
-  level          String   // "AAA" | "AA" | "A+" | "A" | "ROK"
+  level          String   // "MLB" | "AAA" | "AA" | "A+" | "A" | "ROK"
   teamName       String?
   // Shared
   gamesPlayed    Int

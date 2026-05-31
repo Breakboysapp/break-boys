@@ -22,6 +22,7 @@ import {
   productionBreakdown,
   type ProductionBreakdown,
 } from "@/lib/sleepers/refresh-stats";
+import { buildNameMatcher, type MatchType } from "@/lib/player-name-match";
 
 const ONE_HOUR = 3600;
 
@@ -73,6 +74,14 @@ function formatEra(era: number | null): string {
  * produce: "2026-05-15T00:00:00.000Z" or "2026-05-15T00:00:00".
  */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+/**
+ * Per-player stat resolution state on the Sleeper board. Lets the UI
+ * distinguish a roster match with a thin (below-sample) stat line from
+ * a match with no stats at all, and both from a player who never
+ * matched the roster.
+ */
+export type StatStatus = "scored" | "below-sample" | "no-stats" | "unmatched";
 
 function reviveDates<T>(value: T): T {
   if (value == null) return value;
@@ -425,7 +434,8 @@ const _getProductSleeperBoardRaw = unstable_cache(
         ungradedCents: true,
       },
     });
-    if (cards.length === 0) return { product, rows: [], unmatched: 0 };
+    if (cards.length === 0)
+      return { product, rows: [], unmatched: 0, belowSample: 0 };
 
     const norm = (s: string) =>
       s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -476,8 +486,15 @@ const _getProductSleeperBoardRaw = unstable_cache(
         mlbPlayerId: true,
       },
     });
-    const rosterByName = new Map(
-      rosterRows.map((r) => [r.normalizedName, r]),
+    // Tiered matcher: exact key first, then unambiguous loose / first-
+    // initial fallbacks. Lets a checklist spelling that drifts from
+    // MLB's ("C.J. Abrams" vs "CJ Abrams", "Ronald Acuna Jr." vs
+    // "Ronald Acuna", "Yoshinobu" vs "Yoshi") still land on its roster
+    // row instead of showing "no roster match" with a null Production
+    // score. See lib/player-name-match.ts for the safety rules.
+    const rosterMatcher = buildNameMatcher(
+      rosterRows,
+      (r) => r.normalizedName,
     );
 
     // Stat lines for every player on the roster. One read keyed on
@@ -492,6 +509,7 @@ const _getProductSleeperBoardRaw = unstable_cache(
               mlbPlayerId: true,
               group: true,
               level: true,
+              teamName: true,
               age: true,
               gamesPlayed: true,
               plateAppearances: true,
@@ -521,7 +539,9 @@ const _getProductSleeperBoardRaw = unstable_cache(
       where: { sport: product.sport, source: "mlb-pipeline" },
       select: { normalizedName: true, rank: true },
     });
-    const rankByName = new Map(rankings.map((r) => [r.normalizedName, r.rank]));
+    // Same tiered fallback for the Pipeline rank join so a drifted
+    // spelling doesn't drop a Top-100 prospect's rank badge.
+    const rankMatcher = buildNameMatcher(rankings, (r) => r.normalizedName);
 
     // Normalize market across this product so the values are
     // comparable within the break. Top guy in the product = 100.
@@ -535,8 +555,10 @@ const _getProductSleeperBoardRaw = unstable_cache(
     const maxBlend = Math.max(0, ...rawBlend.values());
 
     const rows = [...byPlayer.values()].map((agg) => {
-      const roster = rosterByName.get(agg.normalizedName);
-      const rank = rankByName.get(agg.normalizedName) ?? null;
+      const rosterHit = rosterMatcher.match(agg.normalizedName);
+      const roster = rosterHit?.item;
+      const matchType: MatchType | null = rosterHit?.via ?? null;
+      const rank = rankMatcher.match(agg.normalizedName)?.item.rank ?? null;
       const topPrice = agg.prices.length > 0 ? Math.max(...agg.prices) : null;
       const medPrice =
         agg.prices.length > 0 ? Math.round(median(agg.prices)) : null;
@@ -549,16 +571,38 @@ const _getProductSleeperBoardRaw = unstable_cache(
       // Stat join + Production Index. Two-way players get both groups
       // and we surface whichever gives the higher signal — matches how
       // a buyer thinks about it ("what's he actually good at?").
+      //
+      // We build the stat-line summary for every group that HAS data,
+      // independently of whether it clears the Production sample gate.
+      // That way a player who's matched the roster but only has, say,
+      // 30 PA still shows his line + a "below sample" status, instead
+      // of being indistinguishable from a player with no stats at all
+      // or one who never matched the roster.
       const stats = roster ? statsByPlayerId.get(roster.mlbPlayerId) : undefined;
       let production: number | null = null;
       let productionParts: ProductionBreakdown["parts"] | null = null;
-      let statSummary: {
+      type StatSummary = {
         group: "hitting" | "pitching";
         line: string;
         gamesPlayed: number;
-      } | null = null;
+      };
+      let statSummary: StatSummary | null = null;
+
+      let hitSummary: StatSummary | null = null;
       if (stats?.hitting && roster) {
         const h = stats.hitting;
+        // Hitter stat line surfaces K% — the new signal v2 layered in.
+        // ".810 OPS · 24% K · 8 HR" reads at a glance whether the
+        // bat has plate discipline or is a feast/famine swinger.
+        const kPct =
+          h.plateAppearances && h.plateAppearances > 0
+            ? `${Math.round(((h.strikeOuts ?? 0) / h.plateAppearances) * 100)}%`
+            : "—";
+        hitSummary = {
+          group: "hitting",
+          line: `${formatOps(h.ops)} OPS · ${kPct} K · ${h.homeRuns ?? 0} HR`,
+          gamesPlayed: h.gamesPlayed,
+        };
         const breakdown = computeHitterBreakdown({
           level: roster.level,
           age: roster.age,
@@ -570,22 +614,24 @@ const _getProductSleeperBoardRaw = unstable_cache(
         if (breakdown != null) {
           production = breakdown.score;
           productionParts = breakdown.parts;
-          // Hitter stat line surfaces K% — the new signal v2 layered in.
-          // ".810 OPS · 24% K · 8 HR" reads at a glance whether the
-          // bat has plate discipline or is a feast/famine swinger.
-          const kPct =
-            h.plateAppearances && h.plateAppearances > 0
-              ? `${Math.round(((h.strikeOuts ?? 0) / h.plateAppearances) * 100)}%`
-              : "—";
-          statSummary = {
-            group: "hitting",
-            line: `${formatOps(h.ops)} OPS · ${kPct} K · ${h.homeRuns ?? 0} HR`,
-            gamesPlayed: h.gamesPlayed,
-          };
+          statSummary = hitSummary;
         }
       }
+
+      let pitchSummary: StatSummary | null = null;
       if (stats?.pitching && roster) {
         const p = stats.pitching;
+        // Pitcher stat line: ERA · K/9. K/9 is the readable
+        // velocity-of-strikeouts number scouts use.
+        const k9 =
+          p.inningsPitched && p.inningsPitched > 0
+            ? ((p.strikeOuts ?? 0) / p.inningsPitched) * 9
+            : null;
+        pitchSummary = {
+          group: "pitching",
+          line: `${formatEra(p.era)} ERA · ${k9 != null ? k9.toFixed(1) : "—"} K/9`,
+          gamesPlayed: p.gamesPlayed,
+        };
         const breakdown = computePitcherBreakdown({
           level: roster.level,
           age: roster.age,
@@ -600,19 +646,38 @@ const _getProductSleeperBoardRaw = unstable_cache(
         ) {
           production = breakdown.score;
           productionParts = breakdown.parts;
-          // Pitcher stat line: ERA · K/9. K/9 is the readable
-          // velocity-of-strikeouts number scouts use.
-          const k9 =
-            p.inningsPitched && p.inningsPitched > 0
-              ? ((p.strikeOuts ?? 0) / p.inningsPitched) * 9
-              : null;
-          statSummary = {
-            group: "pitching",
-            line: `${formatEra(p.era)} ERA · ${k9 != null ? k9.toFixed(1) : "—"} K/9`,
-            gamesPlayed: p.gamesPlayed,
-          };
+          statSummary = pitchSummary;
         }
       }
+
+      // If no group cleared the sample gate, still show a line for the
+      // group that has data (prefer hitting, then pitching) so the
+      // below-sample row isn't blank.
+      if (statSummary == null) statSummary = hitSummary ?? pitchSummary;
+
+      // Four-state stat status so the UI can tell these apart:
+      //   scored       — matched + a qualifying stat line → Production
+      //   below-sample — matched + has stats, but under the PA/IP gate
+      //   no-stats     — matched the roster, but no stat line at all
+      //   unmatched    — never matched the roster (MLB or MiLB)
+      const hasStatLine = hitSummary != null || pitchSummary != null;
+      const statStatus: StatStatus =
+        roster == null
+          ? "unmatched"
+          : production != null
+            ? "scored"
+            : hasStatLine
+              ? "below-sample"
+              : "no-stats";
+
+      // Team name: the roster endpoint only returns a team id (no
+      // name), so fall back to the team carried on the stat line —
+      // which is how MLB veterans get "MLB · Miami Marlins".
+      const teamName =
+        roster?.teamName ??
+        stats?.hitting?.teamName ??
+        stats?.pitching?.teamName ??
+        null;
 
       // Sleeper Score = Production ÷ Market. High = playing well,
       // market hasn't priced him in. Falls back to null when either
@@ -630,8 +695,10 @@ const _getProductSleeperBoardRaw = unstable_cache(
         medianPriceCents: medPrice,
         market,
         matched: roster != null,
+        matchType,
+        statStatus,
         level: roster?.level ?? null,
-        teamName: roster?.teamName ?? null,
+        teamName,
         position: roster?.position ?? null,
         age: roster?.age ?? null,
         mlbPlayerId: roster?.mlbPlayerId ?? null,
@@ -655,7 +722,14 @@ const _getProductSleeperBoardRaw = unstable_cache(
     });
 
     const unmatched = rows.filter((r) => !r.matched).length;
-    return { product, rows, unmatched };
+    // Matched the roster but the stat line is too thin to score —
+    // surfaced as its own count so the page can tell the user how many
+    // players are "on a roster, just not enough data yet" vs. truly
+    // off-roster.
+    const belowSample = rows.filter(
+      (r) => r.statStatus === "below-sample",
+    ).length;
+    return { product, rows, unmatched, belowSample };
   },
   // v2 cache key — a prior cache entry from Phase 1 (no roster/stats
   // joined) was being served past the refresh that should have busted
@@ -664,7 +738,12 @@ const _getProductSleeperBoardRaw = unstable_cache(
   // v3: production index reweighted (K%, BB%, stagnation, asymmetric
   // K/BB), and rows now carry productionParts for the tooltip. Bump
   // bypasses v2 cache so the new math takes effect on first visit.
-  ["product-sleeper-board", "v3"],
+  // v4: tiered name matcher (loose + first-initial fallbacks) raises
+  // the roster/rank hit rate, so cached rows from v3 are stale.
+  // v5: MLB-level roster + stats now join in (flagship veterans get a
+  // level/team/Production), rows carry statStatus (scored / below-
+  // sample / no-stats / unmatched) and a stat-line team fallback.
+  ["product-sleeper-board", "v5"],
   { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
 );
 export async function getProductSleeperBoard(productId: string) {

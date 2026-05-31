@@ -75,6 +75,11 @@ export async function refreshMilbRoster(): Promise<RosterRefreshResult> {
 /**
  * Cheap "do we need to refresh?" check used by the page's self-seed
  * gate. Reads one row, compares its lastSyncedAt to ROSTER_FRESH_MS.
+ *
+ * Also force-stale when there are zero MLB-level rows: a cache that
+ * predates MLB-roster support would otherwise look "fresh" and the
+ * flagship veterans wouldn't appear until the next daily sync. This
+ * makes the upgrade self-healing on the first visit after deploy.
  */
 export async function isRosterStale(): Promise<boolean> {
   const any = await prisma.milbRoster.findFirst({
@@ -82,5 +87,10 @@ export async function isRosterStale(): Promise<boolean> {
     orderBy: { lastSyncedAt: "desc" },
   });
   if (!any) return true;
-  return Date.now() - any.lastSyncedAt.getTime() > ROSTER_FRESH_MS;
+  if (Date.now() - any.lastSyncedAt.getTime() > ROSTER_FRESH_MS) return true;
+  const mlb = await prisma.milbRoster.findFirst({
+    where: { level: "MLB" },
+    select: { id: true },
+  });
+  return mlb == null;
 }

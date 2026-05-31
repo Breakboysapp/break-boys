@@ -21,17 +21,19 @@ import SleepersTable from "./SleepersTable";
  * Made, Griffin) — so they can find the AA hitter whose card
  * market hasn't caught up to his production.
  *
- * v1 (this page): join the product's checklist with MLB's current
- * MiLB roster + the existing card market. Surfaces level + team +
- * age per player, sortable by top-auto price. Already useful for
- * spotting "high market but no Pipeline rank" arbitrage.
+ * Joins the product's checklist with MLB's current pro roster — MLB
+ * plus all five MiLB levels — and the existing card market. Surfaces
+ * level + team + age per player, their season Production Index, and a
+ * Sleeper Score = Production / Market (the "playing well but market
+ * hasn't noticed" signal). Pulling in the MLB level is what lets
+ * flagship veterans (Topps Series 1/2, etc.) match — before, they
+ * fell through as "no roster match" since they're not in MiLB.
  *
- * v2 (queued): per-player season stats (wRC+, FIP-) → Production
- * Index → Sleeper Score = Production / Market. That's the real
- * "playing well but market hasn't noticed" signal.
+ * Players are tagged scored / below-sample / no-stats / unmatched so
+ * a thin-sample roster match reads distinctly from a true no-match.
  *
- * Self-seeds the MilbRoster cache on first visit if empty or stale
- * (>24h). After that, reads from cache. Daily cron will land later.
+ * Self-seeds the roster + stats cache on first visit if empty or
+ * stale (>24h). After that, reads from cache. Daily cron lands later.
  */
 export const dynamic = "force-dynamic";
 // The first visit fetches ~8k MiLB roster entries + two batched
@@ -91,7 +93,7 @@ export default async function ProductSleepersPage({
   const board = await getProductSleeperBoard(id);
   if (!board) notFound();
 
-  const { product, rows, unmatched } = board;
+  const { product, rows, unmatched, belowSample } = board;
   const matched = rows.length - unmatched;
   const matchPct = rows.length > 0 ? Math.round((matched / rows.length) * 100) : 0;
   const ranked = rows.filter((r) => r.pipelineRank != null).length;
@@ -121,7 +123,7 @@ export default async function ProductSleepersPage({
             <p className="mt-2 max-w-2xl text-sm text-slate-500">
               Every player on this product&apos;s checklist joined with their{" "}
               <span className="font-bold text-ink">
-                current MiLB level
+                current level (MLB or MiLB)
               </span>{" "}
               and their card market. Built for Pick-Your-Player breaks —
               spot the AA bat whose auto hasn&apos;t priced him in yet.
@@ -168,7 +170,7 @@ export default async function ProductSleepersPage({
         <KpiCard
           label="With stats"
           value={withProduction.toLocaleString()}
-          sub={`${ranked} on Pipeline Top 100`}
+          sub={`${belowSample.toLocaleString()} thin · ${ranked} Top 100`}
         />
         <KpiCard
           label="Production sleepers"
@@ -226,7 +228,7 @@ export default async function ProductSleepersPage({
               Cache key
             </div>
             <div className="mt-0.5 font-mono text-[11px] text-slate-600">
-              v2
+              v5
             </div>
             <div className="text-[10px] text-slate-400">
               bumped to bust stale cache
