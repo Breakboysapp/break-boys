@@ -70,7 +70,15 @@ export async function areStatsStale(
     orderBy: { lastSyncedAt: "desc" },
   });
   if (!any) return true;
-  return Date.now() - any.lastSyncedAt.getTime() > STATS_FRESH_MS;
+  if (Date.now() - any.lastSyncedAt.getTime() > STATS_FRESH_MS) return true;
+  // Force-stale when there are no MLB-level lines yet, so a cache that
+  // predates MLB-stats support refreshes on the first visit after
+  // deploy rather than waiting out the freshness window.
+  const mlb = await prisma.milbStatLine.findFirst({
+    where: { season, level: "MLB" },
+    select: { id: true },
+  });
+  return mlb == null;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -91,6 +99,7 @@ export async function areStatsStale(
 // look obviously right/wrong by eye.
 
 const EXPECTED_AGE: Record<string, number> = {
+  MLB: 28,
   AAA: 24,
   AA: 23,
   "A+": 22,
@@ -102,8 +111,10 @@ const HITTING_WEIGHTS = {
   // Minimum sample size before we trust the line at all
   minPA: 75,
   // OPS — keep as the dominant contributor. Each .100 OPS above
-  // baseline = +30. Typical range ±60.
-  opsBaseline: { AAA: 0.74, AA: 0.71, "A+": 0.7, A: 0.7, ROK: 0.72 },
+  // baseline = +30. Typical range ±60. MLB baseline ~.720 tracks the
+  // current league-average OPS, so an MLB regular is scored against
+  // the bar he's actually clearing, not a minor-league one.
+  opsBaseline: { MLB: 0.72, AAA: 0.74, AA: 0.71, "A+": 0.7, A: 0.7, ROK: 0.72 },
   opsPerPointOps: 300,
   // K% (strikeout rate). 23% is roughly league-average for MiLB; a
   // 33% K guy maxes the -25 penalty. Mitchell-type lands ~63 — OPS
@@ -126,8 +137,9 @@ const HITTING_WEIGHTS = {
 
 const PITCHING_WEIGHTS = {
   minIP: 15,
-  // ERA — headline metric. Each 1.00 ERA below baseline = +25.
-  eraBaseline: { AAA: 4.5, AA: 4.2, "A+": 4.0, A: 4.0, ROK: 4.5 },
+  // ERA — headline metric. Each 1.00 ERA below baseline = +25. MLB
+  // baseline ~4.10 tracks current league-average ERA.
+  eraBaseline: { MLB: 4.1, AAA: 4.5, AA: 4.2, "A+": 4.0, A: 4.0, ROK: 4.5 },
   eraPerRun: 25,
   // K/BB — asymmetric: +15 max on the good side, -25 on the bad
   // side. Reflects scouting reality where control is a floor; a
@@ -154,6 +166,29 @@ export type ProductionBreakdown = {
 function pct(num: number | null | undefined, denom: number | null | undefined) {
   if (num == null || denom == null || denom <= 0) return null;
   return num / denom;
+}
+
+/**
+ * Age-vs-level contribution to the Production Index. Younger than
+ * expected for the level = upside bonus; older = the player is behind
+ * the development curve, a penalty.
+ *
+ * MLB is the exception: being "old for MLB" is normal — a 33-year-old
+ * All-Star isn't a red flag, he's a star. So at the MLB level we keep
+ * the youth bonus (a 23-year-old MLB regular genuinely has upside) but
+ * zero out the older-than-expected penalty, otherwise every productive
+ * veteran in a flagship set would be unfairly dragged down.
+ */
+function ageComponent(
+  level: string,
+  age: number | null,
+  expected: number,
+  w: { agePerYearYounger: number; agePerYearOlder: number },
+): number {
+  const ageDelta = age != null ? expected - age : 0;
+  if (ageDelta >= 0) return ageDelta * w.agePerYearYounger;
+  if (level === "MLB") return 0; // veterans aren't penalized for age
+  return ageDelta * Math.abs(w.agePerYearOlder);
 }
 
 /**
@@ -201,11 +236,7 @@ export function productionBreakdown(args: {
         : 0;
 
     const expected = EXPECTED_AGE[args.level] ?? 21;
-    const ageDelta = args.age != null ? expected - args.age : 0;
-    const ageScore =
-      ageDelta >= 0
-        ? ageDelta * w.agePerYearYounger
-        : ageDelta * Math.abs(w.agePerYearOlder);
+    const ageScore = ageComponent(args.level, args.age, expected, w);
 
     // Stagnation: 23+ at A+, 22+ at A, 21+ at ROK = systemic flag
     let stagnation = 0;
@@ -281,11 +312,7 @@ export function productionBreakdown(args: {
       : 0;
 
   const expected = EXPECTED_AGE[args.level] ?? 21;
-  const ageDelta = args.age != null ? expected - args.age : 0;
-  const ageScore =
-    ageDelta >= 0
-      ? ageDelta * w.agePerYearYounger
-      : ageDelta * Math.abs(w.agePerYearOlder);
+  const ageScore = ageComponent(args.level, args.age, expected, w);
 
   const raw = eraScore + kbbBonus - bb9Penalty + ageScore;
   const clamped = Math.max(0, Math.min(100, Math.round(raw)));

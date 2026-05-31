@@ -1,23 +1,29 @@
 /**
  * MLB Stats API season-stats adapter (batch).
  *
- * One request per group (hitting / pitching) across all five MiLB
- * levels (sportIds=11,12,13,14,16). The API returns one row per
- * player per (team-stint × group), which we collapse to a single
+ * One request per group (hitting / pitching) across MLB + all five
+ * MiLB levels (sportIds=1,11,12,13,14,16). The API returns one row
+ * per player per (team-stint × group), which we collapse to a single
  * highest-level row per (playerId, group) — same rationale as the
- * roster fetcher.
+ * roster fetcher (an MLB stint outranks the AAA stint for the same
+ * called-up player).
  *
- * The `limit` query param has a hard cap server-side around ~1000
- * rows per group in early-season; we set it high (5000) so we never
- * paginate in practice. If MiLB rolls deeper into the season and the
- * count climbs, swap in a paged loop here.
+ * Adding MLB (sportId 1) is what gives flagship veterans a Production
+ * Index — they have no MiLB line, so without it they showed a roster
+ * match but a blank Production cell. The combined six-level pull still
+ * lands ~1–1.5k rows per group well inside the limit below.
+ *
+ * The `limit` query param: we set it high (5000) so we never paginate
+ * in practice. If the season rolls on and the combined count climbs
+ * toward that, swap in a paged loop here.
  */
 
 const BASE = "https://statsapi.mlb.com/api/v1";
-const SPORT_IDS = "11,12,13,14,16";
+const SPORT_IDS = "1,11,12,13,14,16";
 
 // Level priority for highest-level-wins dedupe (matches roster).
 const LEVEL_BY_SPORT_ID: Record<number, string> = {
+  1: "MLB",
   11: "AAA",
   12: "AA",
   13: "A+",
@@ -25,6 +31,7 @@ const LEVEL_BY_SPORT_ID: Record<number, string> = {
   16: "ROK",
 };
 const LEVEL_RANK: Record<string, number> = {
+  MLB: 6,
   AAA: 5,
   AA: 4,
   "A+": 3,

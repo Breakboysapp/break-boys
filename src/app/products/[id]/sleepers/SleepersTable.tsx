@@ -10,6 +10,8 @@ export type SleeperBoardRow = {
   medianPriceCents: number | null;
   market: number | null;
   matched: boolean;
+  matchType: "exact" | "loose" | "prefix" | null;
+  statStatus: "scored" | "below-sample" | "no-stats" | "unmatched";
   level: string | null;
   teamName: string | null;
   position: string | null;
@@ -34,7 +36,13 @@ type SortKey =
   | "name"
   | "rank";
 
-type View = "all" | "sleepers" | "unranked" | "ranked" | "unmatched";
+type View =
+  | "all"
+  | "sleepers"
+  | "unranked"
+  | "ranked"
+  | "thin"
+  | "unmatched";
 type GroupFilter = "all" | "batters" | "pitchers";
 
 // Position regex used to classify a row when we don't have a stat
@@ -67,6 +75,7 @@ const GROUP_TABS: Array<{
 
 const LEVEL_GROUPS: Array<{ label: string; matches: string[] | null }> = [
   { label: "All levels", matches: null },
+  { label: "MLB", matches: ["MLB"] },
   { label: "AAA / AA", matches: ["AAA", "AA"] },
   { label: "A+ / A", matches: ["A+", "A"] },
   { label: "ROK / DSL", matches: ["ROK", "DSL"] },
@@ -108,9 +117,19 @@ const VIEW_TABS: Array<{
     defaultSort: "rank",
   },
   {
+    // Matched a roster (MLB or MiLB) but the season sample is still
+    // too thin to score — distinct from "No roster" below, which is
+    // the player we couldn't match at all. Lets the user tell "on a
+    // roster, just early" from "we have nothing on him."
+    key: "thin",
+    label: "Thin sample",
+    filter: (r) => r.statStatus === "below-sample",
+    defaultSort: "topPrice",
+  },
+  {
     key: "unmatched",
     label: "No roster",
-    filter: (r) => !r.matched,
+    filter: (r) => r.statStatus === "unmatched",
     defaultSort: "topPrice",
   },
 ];
@@ -396,6 +415,14 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                                   · {r.teamName}
                                 </span>
                               ) : null}
+                              {r.matchType && r.matchType !== "exact" && (
+                                <span
+                                  className="ml-1 text-[10px] font-bold text-amber-500"
+                                  title={`Fuzzy roster match (${r.matchType}) — name spelling differs from MLB's. Verify it's the right player.`}
+                                >
+                                  ≈
+                                </span>
+                              )}
                             </div>
                             {r.age != null && (
                               <div className="text-[10px] text-slate-400">
@@ -453,9 +480,13 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                                     `${p.label}: ${p.value >= 0 ? "+" : ""}${p.value}`,
                                 )
                                 .join("\n") + `\n= ${r.production}`
-                            : r.production == null
-                              ? "Sample too small — under 75 PA (hitter) or 15 IP (pitcher)."
-                              : undefined
+                            : r.statStatus === "below-sample"
+                              ? "Matched a roster and has a stat line, but the season sample is below the threshold to score (75 PA hitter / 15 IP pitcher)."
+                              : r.statStatus === "no-stats"
+                                ? "On a roster, but no season stat line yet."
+                                : r.statStatus === "unmatched"
+                                  ? "No roster match — couldn't tie this name to an MLB/MiLB player."
+                                  : undefined
                         }
                       >
                         {r.production != null ? (
@@ -469,6 +500,10 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                             }
                           >
                             {r.production}
+                          </span>
+                        ) : r.statStatus === "below-sample" ? (
+                          <span className="text-[10px] font-bold uppercase tracking-tight-2 text-amber-500">
+                            thin
                           </span>
                         ) : (
                           <span className="text-xs text-slate-300">—</span>

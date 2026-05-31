@@ -1,22 +1,30 @@
 /**
  * MLB Stats API roster adapter.
  *
- * One request per Minor League level (AAA / AA / A+ / A / Rookie),
- * merged into a single deduplicated roster. Players who appear at
- * multiple levels mid-season (called up from AA → AAA, etc.) collapse
- * to their highest level — that's how MLB Pipeline + the hobby reads
- * "where is he playing right now."
+ * One request per pro level — MLB plus the five Minor League levels
+ * (AAA / AA / A+ / A / Rookie) — merged into a single deduplicated
+ * roster. Players who appear at multiple levels mid-season (called up
+ * from AAA → MLB, AA → AAA, etc.) collapse to their highest level —
+ * that's how MLB Pipeline + the hobby reads "where is he playing
+ * right now."
+ *
+ * Adding MLB (sportId 1) is what lets the Sleeper board match flagship
+ * veterans (Topps Series 1/2, etc.) — they were never in the MiLB
+ * roster, so they fell through as "no roster match" with no stats.
+ * Each sportId is its own isolated fetch, so MLB sits alongside the
+ * MiLB levels with no risk to the existing MiLB pull.
  *
  * No auth required — statsapi.mlb.com is the same public endpoint
- * used by mlb.com/milb itself.
+ * used by mlb.com / milb.com itself.
  */
 
 const BASE = "https://statsapi.mlb.com/api/v1";
 
 // sportId → display level. Order matters: highest-level first so the
 // dedupe pass keeps a player's highest assignment when they've been
-// jumping levels.
+// jumping levels (an MLB call-up reads as "MLB", not "AAA").
 const LEVELS: Array<{ sportId: number; level: string }> = [
+  { sportId: 1, level: "MLB" },
   { sportId: 11, level: "AAA" },
   { sportId: 12, level: "AA" },
   { sportId: 13, level: "A+" },
@@ -52,18 +60,18 @@ export type MilbRosterEntry = {
 };
 
 /**
- * Pulls every active player across the five MiLB levels for the
+ * Pulls every active player across MLB + the five MiLB levels for the
  * given season, deduped to one entry per player at their highest
  * current level.
  *
- * Typical 2026 response: ~7–9k unique players, ~1.5–2.5MB JSON per
- * level. Caller should cache this — it's not cheap to refetch on
- * every page render.
+ * Typical 2026 response: ~1.1k MLB + ~7–9k MiLB unique players,
+ * ~1.5–2.5MB JSON per level. Caller should cache this — it's not
+ * cheap to refetch on every page render.
  */
 export async function fetchMilbRoster(
   season: number = new Date().getUTCFullYear(),
 ): Promise<MilbRosterEntry[]> {
-  // Parallel — the 5 sport-IDs are independent fetches against the
+  // Parallel — the 6 sport-IDs are independent fetches against the
   // same CDN. Was sequential before, which on cold start with a
   // ~2-3s fetch per level was bumping into Vercel's default request
   // timeout. Going parallel keeps the whole job under ~5s.
