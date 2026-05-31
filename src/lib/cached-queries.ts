@@ -461,17 +461,32 @@ const _getProductSleeperBoardRaw = unstable_cache(
     };
     const byPlayer = new Map<string, PlayerAgg>();
     for (const c of cards) {
-      const key = norm(c.playerName);
-      const agg = byPlayer.get(key) ?? {
-        playerName: c.playerName,
-        normalizedName: key,
-        cardCount: 0,
-        prices: [],
-      };
-      agg.cardCount += 1;
+      // Dual / triple autos in Bowman Draft and other Bowman variants
+      // arrive with a slash-separated playerName like "Jesús Made/
+      // Luis Peña". Without a split, they aggregate into a phantom
+      // "made/peña" key — one card, no roster match, polluted board.
+      //
+      // Splitting on "/" credits both players for the card. A bit of
+      // over-counting (the combined auto's price reflects both names,
+      // not each individually), but it's a closer approximation than
+      // either (a) dropping the card or (b) inventing a phantom row.
+      const names = c.playerName
+        .split("/")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
       const v = eff(c.psa10Cents, c.ungradedCents);
-      if (v > 0) agg.prices.push(v);
-      byPlayer.set(key, agg);
+      for (const name of names) {
+        const key = norm(name);
+        const agg = byPlayer.get(key) ?? {
+          playerName: name,
+          normalizedName: key,
+          cardCount: 0,
+          prices: [],
+        };
+        agg.cardCount += 1;
+        if (v > 0) agg.prices.push(v);
+        byPlayer.set(key, agg);
+      }
     }
 
     // Roster lookup keyed by normalized name. Roster is small (~8k
@@ -743,7 +758,10 @@ const _getProductSleeperBoardRaw = unstable_cache(
   // v5: MLB-level roster + stats now join in (flagship veterans get a
   // level/team/Production), rows carry statStatus (scored / below-
   // sample / no-stats / unmatched) and a stat-line team fallback.
-  ["product-sleeper-board", "v5"],
+  // v6: split slash-separated playerNames so dual / triple autos
+  // contribute to each named player instead of forming a phantom
+  // "A/B" row.
+  ["product-sleeper-board", "v6"],
   { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
 );
 export async function getProductSleeperBoard(productId: string) {
