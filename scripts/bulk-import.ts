@@ -35,6 +35,7 @@ const PRODUCTS: Seed[] = [
   { name: "2025 Topps Gilded Collection Baseball", sport: "MLB", manufacturer: "Topps", slug: "2025-topps-gilded-collection-baseball-cards" },
   { name: "2025 Bowman Chrome Baseball", sport: "MLB", manufacturer: "Bowman", slug: "2025-bowman-chrome-baseball-cards" },
   { name: "2025 Bowman Draft Baseball", sport: "MLB", manufacturer: "Bowman", slug: "2025-bowman-draft-baseball-cards" },
+  { name: "2025 Topps Chrome Platinum Anniversary Baseball", sport: "MLB", manufacturer: "Topps", slug: "2025-topps-chrome-platinum-anniversary-baseball-cards" },
   // 2024 baseball
   { name: "2024 Topps Chrome Baseball", sport: "MLB", manufacturer: "Topps", slug: "2024-topps-chrome-baseball-checklist" },
   // 2025 football

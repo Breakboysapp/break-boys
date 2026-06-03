@@ -24,6 +24,7 @@ const SLUGS: Record<string, string> = {
   "2025 Topps Gilded Collection Baseball": "2025-topps-gilded-collection-baseball-cards",
   "2025 Bowman Chrome Baseball": "2025-bowman-chrome-baseball-cards",
   "2025 Bowman Draft Baseball": "2025-bowman-draft-baseball-cards",
+  "2025 Topps Chrome Platinum Anniversary Baseball": "2025-topps-chrome-platinum-anniversary-baseball-cards",
   "2024 Topps Chrome Baseball": "2024-topps-chrome-baseball-checklist",
   "2025 Topps Chrome Football": "2025-topps-chrome-football-cards",
   "2025 Panini Prizm Football": "2025-panini-prizm-football-cards",

@@ -21,6 +21,7 @@ const PRODUCTS = [
   { name: "2025 Topps Gilded Collection Baseball", sport: "MLB", slug: "2025-topps-gilded-collection-baseball-cards" },
   { name: "2025 Bowman Chrome Baseball", sport: "MLB", slug: "2025-bowman-chrome-baseball-cards" },
   { name: "2025 Bowman Draft Baseball", sport: "MLB", slug: "2025-bowman-draft-baseball-cards" },
+  { name: "2025 Topps Chrome Platinum Anniversary Baseball", sport: "MLB", slug: "2025-topps-chrome-platinum-anniversary-baseball-cards" },
   { name: "2024 Topps Chrome Baseball", sport: "MLB", slug: "2024-topps-chrome-baseball-checklist" },
   { name: "2025 Topps Chrome Football", sport: "NFL", slug: "2025-topps-chrome-football-cards" },
   { name: "2025 Panini Prizm Football", sport: "NFL", slug: "2025-panini-prizm-football-cards" },
