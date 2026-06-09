@@ -26,6 +26,8 @@ const PRODUCTS: Seed[] = [
     manufacturer: "Topps",
     slug: "2026-topps-chrome-black-baseball-cards",
   },
+  { name: "2026 Topps Series 2 Baseball", sport: "MLB", manufacturer: "Topps", slug: "2026-topps-series-2-baseball-cards" },
+  { name: "2026 Topps Finest Baseball", sport: "MLB", manufacturer: "Topps", slug: "2026-topps-finest-baseball-cards" },
   // 2025 baseball
   { name: "2025 Topps Chrome Baseball", sport: "MLB", manufacturer: "Topps", slug: "2025-topps-chrome-baseball-cards" },
   { name: "2025 Topps Series 1 Baseball", sport: "MLB", manufacturer: "Topps", slug: "2025-topps-series-1-baseball-cards" },

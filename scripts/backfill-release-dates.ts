@@ -16,6 +16,8 @@ const UA =
 
 const SLUGS: Record<string, string> = {
   "2026 Topps Chrome Black Baseball": "2026-topps-chrome-black-baseball-cards",
+  "2026 Topps Series 2 Baseball": "2026-topps-series-2-baseball-cards",
+  "2026 Topps Finest Baseball": "2026-topps-finest-baseball-cards",
   "2025 Topps Chrome Baseball": "2025-topps-chrome-baseball-cards",
   "2025 Topps Series 1 Baseball": "2025-topps-series-1-baseball-cards",
   "2025 Topps Series 2 Baseball": "2025-topps-series-2-baseball-cards",
