@@ -22,6 +22,8 @@ const PRODUCTS = [
   { name: "2025 Topps Heritage Baseball", sport: "MLB", slug: "2025-topps-heritage-baseball-cards" },
   { name: "2025 Topps Definitive Collection Baseball", sport: "MLB", slug: "2025-topps-definitive-baseball-cards" },
   { name: "2025 Topps Gilded Collection Baseball", sport: "MLB", slug: "2025-topps-gilded-collection-baseball-cards" },
+  { name: "2025 Topps Dynasty Baseball", sport: "MLB", slug: "2025-topps-dynasty-baseball-cards" },
+  { name: "2025 Topps Inception Baseball", sport: "MLB", slug: "2025-topps-inception-baseball-cards" },
   { name: "2025 Bowman Chrome Baseball", sport: "MLB", slug: "2025-bowman-chrome-baseball-cards" },
   { name: "2025 Bowman Draft Baseball", sport: "MLB", slug: "2025-bowman-draft-baseball-cards" },
   { name: "2025 Topps Chrome Platinum Anniversary Baseball", sport: "MLB", slug: "2025-topps-chrome-platinum-anniversary-baseball-cards" },
