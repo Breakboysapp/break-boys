@@ -132,10 +132,13 @@ export default async function HomePage({
   // so this stays editorially curated rather than purely algorithmic; rotate
   // these manually as new flagship releases land.
   const FEATURED_NAMES = [
-    "2026 Bowman Baseball",
-    "2025 Topps Chrome Football",
-    "2025-26 Topps Cosmic Chrome Basketball",
-    "2025 Topps Definitive Collection Baseball",
+    "2026 Topps Football",
+    "2025-26 Topps Chrome Update Basketball",
+    "2025-26 Topps Inception Basketball",
+    "2026 Topps Chrome Baseball",
+    "2025 Topps Chrome Black Football",
+    "2025 Topps Cosmic Chrome Football",
+    "2025 Topps Chrome Sapphire Football",
   ];
   const featuredById = new Map(
     all.filter((p) => FEATURED_NAMES.includes(p.name)).map((p) => [p.name, p]),
