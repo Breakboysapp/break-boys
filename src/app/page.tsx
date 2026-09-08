@@ -131,17 +131,23 @@ export default async function HomePage({
   // Featured products — hero "Beat The Break" carousel. Hand-picked by name
   // so this stays editorially curated rather than purely algorithmic; rotate
   // these manually as new flagship releases land.
+  //
+  // Hard cap at MAX_FEATURED. The hero grid is a single row of three at every
+  // breakpoint that matters (sm/xl grid-cols-3, lg grid-cols-1 stacks), and
+  // anything past three either orphans a tile on its own row or blows the
+  // "curated top drops" vibe. Rotate — don't append.
+  const MAX_FEATURED = 3;
   const FEATURED_NAMES = [
     "2026 Bowman Chrome Baseball",
     "2026 Topps Football",
     "2025-26 Topps Chrome Update Basketball",
-  ];
+  ].slice(0, MAX_FEATURED);
   const featuredById = new Map(
     all.filter((p) => FEATURED_NAMES.includes(p.name)).map((p) => [p.name, p]),
   );
-  const featured = FEATURED_NAMES.map((n) => featuredById.get(n)).filter(
-    (p): p is NonNullable<typeof p> => Boolean(p),
-  );
+  const featured = FEATURED_NAMES.map((n) => featuredById.get(n))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .slice(0, MAX_FEATURED);
 
   // Build chip values from the current tab's pool so options reflect the
   // tab the user is on (e.g. only sports represented among Coming Soon
