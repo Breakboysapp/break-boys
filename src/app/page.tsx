@@ -135,11 +135,6 @@ export default async function HomePage({
     "2026 Bowman Chrome Baseball",
     "2026 Topps Football",
     "2025-26 Topps Chrome Update Basketball",
-    "2025-26 Topps Inception Basketball",
-    "2026 Topps Chrome Baseball",
-    "2025 Topps Chrome Black Football",
-    "2025 Topps Cosmic Chrome Football",
-    "2025 Topps Chrome Sapphire Football",
   ];
   const featuredById = new Map(
     all.filter((p) => FEATURED_NAMES.includes(p.name)).map((p) => [p.name, p]),
