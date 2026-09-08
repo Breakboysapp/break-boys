@@ -132,6 +132,7 @@ export default async function HomePage({
   // so this stays editorially curated rather than purely algorithmic; rotate
   // these manually as new flagship releases land.
   const FEATURED_NAMES = [
+    "2026 Bowman Chrome Baseball",
     "2026 Topps Football",
     "2025-26 Topps Chrome Update Basketball",
     "2025-26 Topps Inception Basketball",
