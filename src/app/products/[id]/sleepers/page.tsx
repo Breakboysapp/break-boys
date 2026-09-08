@@ -228,7 +228,7 @@ export default async function ProductSleepersPage({
               Cache key
             </div>
             <div className="mt-0.5 font-mono text-[11px] text-slate-600">
-              v5
+              v7
             </div>
             <div className="text-[10px] text-slate-400">
               bumped to bust stale cache

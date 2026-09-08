@@ -23,6 +23,7 @@ import {
   type ProductionBreakdown,
 } from "@/lib/sleepers/refresh-stats";
 import { buildNameMatcher, type MatchType } from "@/lib/player-name-match";
+import { isProspectCard } from "@/lib/scoring";
 
 const ONE_HOUR = 3600;
 
@@ -432,6 +433,12 @@ const _getProductSleeperBoardRaw = unstable_cache(
         playerName: true,
         psa10Cents: true,
         ungradedCents: true,
+        // cardNumber + variation feed isProspectCard() so we can tag
+        // each player as "1st Bowman" (has a Chrome Prospects / BCP /
+        // CPA card in this product) or not — surfaced as a filter tab
+        // on the sleeper board.
+        cardNumber: true,
+        variation: true,
       },
     });
     if (cards.length === 0)
@@ -458,6 +465,13 @@ const _getProductSleeperBoardRaw = unstable_cache(
       normalizedName: string;
       cardCount: number;
       prices: number[];
+      // Any prospect-line card in this product? Bowman flagship /
+      // Chrome / Draft use BP-, BCP-, CPA-, BDP-, BDC-, etc. prefixes
+      // to mark "1st Bowman" prospect cards. If ANY of a player's
+      // cards here sits on that line, they're in the prospect (1st
+      // Bowman) bucket for this product; if none do, they're a
+      // non-prospect (veteran base / insert-only) player.
+      hasProspectCard: boolean;
     };
     const byPlayer = new Map<string, PlayerAgg>();
     for (const c of cards) {
@@ -475,6 +489,7 @@ const _getProductSleeperBoardRaw = unstable_cache(
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
       const v = eff(c.psa10Cents, c.ungradedCents);
+      const cardIsProspect = isProspectCard(c.cardNumber, c.variation);
       for (const name of names) {
         const key = norm(name);
         const agg = byPlayer.get(key) ?? {
@@ -482,9 +497,11 @@ const _getProductSleeperBoardRaw = unstable_cache(
           normalizedName: key,
           cardCount: 0,
           prices: [],
+          hasProspectCard: false,
         };
         agg.cardCount += 1;
         if (v > 0) agg.prices.push(v);
+        if (cardIsProspect) agg.hasProspectCard = true;
         byPlayer.set(key, agg);
       }
     }
@@ -724,6 +741,7 @@ const _getProductSleeperBoardRaw = unstable_cache(
         statLine: statSummary?.line ?? null,
         statGroup: statSummary?.group ?? null,
         gamesPlayed: statSummary?.gamesPlayed ?? null,
+        bowmanFirst: agg.hasProspectCard,
       };
     });
 
@@ -761,7 +779,10 @@ const _getProductSleeperBoardRaw = unstable_cache(
   // v6: split slash-separated playerNames so dual / triple autos
   // contribute to each named player instead of forming a phantom
   // "A/B" row.
-  ["product-sleeper-board", "v6"],
+  // v7: each row now carries `bowmanFirst` — true when the player
+  // has any prospect-line card (BCP-, CPA-, etc.) in this product.
+  // Powers the 1st Bowman / Non-1st tab split on the sleeper board.
+  ["product-sleeper-board", "v7"],
   { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
 );
 export async function getProductSleeperBoard(productId: string) {
