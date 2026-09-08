@@ -493,15 +493,21 @@ export default async function ProductPage({
           </span>
         </div>
 
-        {hasTeams && !isComingSoon && (
+        {hasTeams && (
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Link
-              href={`/products/${product.id}/break`}
-              className="block w-full rounded-md bg-ink px-5 py-3 text-center text-sm font-bold uppercase tracking-tight-2 text-white hover:opacity-90 sm:inline-block sm:w-auto"
-            >
-              Start a break →
-            </Link>
-            {product.sport === "MLB" && (
+            {!isComingSoon && (
+              <Link
+                href={`/products/${product.id}/break`}
+                className="block w-full rounded-md bg-ink px-5 py-3 text-center text-sm font-bold uppercase tracking-tight-2 text-white hover:opacity-90 sm:inline-block sm:w-auto"
+              >
+                Start a break →
+              </Link>
+            )}
+            {product.sport === "MLB" && !hasNoChecklist && (
+              // Sleeper board is intentionally available while the
+              // product is still Coming Soon — PYP shoppers scout the
+              // checklist before drop day. Only gated on having a real
+              // checklist to score.
               <Link
                 href={`/products/${product.id}/sleepers`}
                 className="block w-full rounded-md border border-ink px-5 py-3 text-center text-sm font-bold uppercase tracking-tight-2 text-ink hover:bg-ink hover:text-white sm:inline-block sm:w-auto"

@@ -24,6 +24,14 @@ export type SleeperBoardRow = {
   statLine: string | null;
   statGroup: "hitting" | "pitching" | null;
   gamesPlayed: number | null;
+  // True when this player has any prospect-line card in the product
+  // (BCP-, CPA-, BP-, BDC-, etc.). Practically "1st Bowman" for
+  // Bowman flagship / Chrome / Draft; false means every card of theirs
+  // in the set sits on a non-prospect line (Base Set veterans, inserts).
+  // Non-Bowman products can still send true when a card carries a
+  // prospect variation tag; the "1st Bowman" tab hides itself when no
+  // rows in the product qualify, so the extra field is a no-op there.
+  bowmanFirst: boolean;
 };
 
 type SortKey =
@@ -44,6 +52,7 @@ type View =
   | "thin"
   | "unmatched";
 type GroupFilter = "all" | "batters" | "pitchers";
+type ClassFilter = "all" | "firsts" | "non-firsts";
 
 // Position regex used to classify a row when we don't have a stat
 // line yet to confirm group. UTL/INF/IF/OF fall into the hitter
@@ -71,6 +80,23 @@ const GROUP_TABS: Array<{
       r.statGroup === "pitching" ||
       (r.statGroup == null && !!r.position && PITCHER_POS.test(r.position)),
   },
+];
+
+// 1st Bowman split. A player is "1st" when any of their cards in this
+// product sits on a Bowman prospect line (BCP-, CPA-, BP-, BDC-, etc.),
+// which is how Topps marks debut prospect cards. Non-1st = every card
+// of theirs is a non-prospect line (Base Set veterans, inserts). The
+// row of tabs hides itself entirely when the product contains no
+// prospect-line cards at all — non-Bowman products (Panini flagship,
+// Topps Series 1, etc.) don't need this dimension.
+const CLASS_TABS: Array<{
+  key: ClassFilter;
+  label: string;
+  filter: (r: SleeperBoardRow) => boolean;
+}> = [
+  { key: "all", label: "All cards", filter: () => true },
+  { key: "firsts", label: "1st Bowman", filter: (r) => r.bowmanFirst },
+  { key: "non-firsts", label: "Non-1st", filter: (r) => !r.bowmanFirst },
 ];
 
 const LEVEL_GROUPS: Array<{ label: string; matches: string[] | null }> = [
@@ -144,6 +170,7 @@ function formatUsd(cents: number | null): string {
 export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
   const [view, setView] = useState<View>("all");
   const [group, setGroup] = useState<GroupFilter>("all");
+  const [classFilter, setClassFilter] = useState<ClassFilter>("all");
   const [sort, setSort] = useState<SortKey>("sleeper");
   const [query, setQuery] = useState("");
   const [levelGroup, setLevelGroup] = useState<string>("All levels");
@@ -152,6 +179,11 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
   const activeTab = VIEW_TABS.find((t) => t.key === view) ?? VIEW_TABS[0];
   const activeGroup =
     GROUP_TABS.find((g) => g.key === group) ?? GROUP_TABS[0];
+  const activeClass =
+    CLASS_TABS.find((c) => c.key === classFilter) ?? CLASS_TABS[0];
+  // Only show the Firsts/Non-Firsts row when the product actually
+  // has prospect cards — hides the noise on non-Bowman products.
+  const hasFirsts = useMemo(() => rows.some((r) => r.bowmanFirst), [rows]);
   const pypCents = (() => {
     const n = Number(pypRate);
     if (!Number.isFinite(n) || n <= 0) return null;
@@ -164,13 +196,14 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
     return rows.filter((r) => {
       if (!activeTab.filter(r)) return false;
       if (!activeGroup.filter(r)) return false;
+      if (!activeClass.filter(r)) return false;
       if (q && !r.playerName.toLowerCase().includes(q)) return false;
       if (lvlGrp?.matches && (r.level == null || !lvlGrp.matches.includes(r.level))) {
         return false;
       }
       return true;
     });
-  }, [rows, query, levelGroup, activeTab, activeGroup]);
+  }, [rows, query, levelGroup, activeTab, activeGroup, activeClass]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -218,13 +251,14 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
   return (
     <section className="space-y-3">
       {/* View tabs (All / 💎 Sleepers / Unranked / Top 100 / No roster).
-          Counts reflect both the view filter AND the active group, so
-          switching to Pitchers makes "💎 Sleepers" mean "💎 pitcher
-          sleepers." */}
+          Counts reflect the view filter AND both the active group and
+          the active 1st/Non-1st class, so switching to Pitchers +
+          1st Bowman makes "💎 Sleepers" mean "💎 pitcher prospects." */}
       <div className="flex flex-wrap gap-2">
         {VIEW_TABS.map((tab) => {
           const count = rows.filter(
-            (r) => tab.filter(r) && activeGroup.filter(r),
+            (r) =>
+              tab.filter(r) && activeGroup.filter(r) && activeClass.filter(r),
           ).length;
           const active = tab.key === view;
           return (
@@ -259,7 +293,8 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
       <div className="flex flex-wrap gap-2">
         {GROUP_TABS.map((tab) => {
           const count = rows.filter(
-            (r) => tab.filter(r) && activeTab.filter(r),
+            (r) =>
+              tab.filter(r) && activeTab.filter(r) && activeClass.filter(r),
           ).length;
           const active = tab.key === group;
           return (
@@ -285,6 +320,47 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
           );
         })}
       </div>
+
+      {/* 1st Bowman split. Only rendered when the product actually has
+          prospect-line cards (BCP-/CPA-/BP-/…); non-Bowman products
+          would just see a useless tab row where every card is "Non-
+          1st". Counts obey the active view + group filters above so
+          numbers stay consistent with what's on screen. */}
+      {hasFirsts && (
+        <div className="flex flex-wrap gap-2">
+          <span className="mr-1 self-center text-[10px] font-bold uppercase tracking-tight-2 text-slate-400">
+            Bowman
+          </span>
+          {CLASS_TABS.map((tab) => {
+            const count = rows.filter(
+              (r) =>
+                tab.filter(r) && activeTab.filter(r) && activeGroup.filter(r),
+            ).length;
+            const active = tab.key === classFilter;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setClassFilter(tab.key)}
+                className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-tight-2 ${
+                  active
+                    ? "bg-emerald-600 text-white"
+                    : "bg-white text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {tab.label}
+                <span
+                  className={`ml-1.5 inline-block tabular-nums ${
+                    active ? "text-white/70" : "text-slate-400"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
         <label className="block">
@@ -397,8 +473,16 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                       className="[&>td]:border-b [&>td]:border-slate-100 hover:bg-bone/40"
                     >
                       <td className="px-3 py-2">
-                        <div className="font-semibold tracking-tight-2 text-slate-800">
-                          {r.playerName}
+                        <div className="flex items-center gap-1.5 font-semibold tracking-tight-2 text-slate-800">
+                          <span>{r.playerName}</span>
+                          {r.bowmanFirst && (
+                            <span
+                              className="rounded-sm bg-emerald-100 px-1 py-px text-[9px] font-bold uppercase tracking-tight-2 text-emerald-700"
+                              title="1st Bowman — has a prospect-line card (BCP-/CPA-/BP-/…) in this product."
+                            >
+                              1st
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-xs text-slate-500">
