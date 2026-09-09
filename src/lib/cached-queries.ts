@@ -421,7 +421,17 @@ const _getProductSleeperBoardRaw = unstable_cache(
   async (productId: string) => {
     const product = await prisma.product.findUnique({
       where: { id: productId },
-      select: { id: true, name: true, sport: true },
+      // releaseDate + createdAt so we can rank "prior Bowman products"
+      // below when computing the true 1st-Bowman flag. Prefer
+      // releaseDate; fall back to createdAt for products whose
+      // releaseDate hasn't been backfilled.
+      select: {
+        id: true,
+        name: true,
+        sport: true,
+        releaseDate: true,
+        createdAt: true,
+      },
     });
     if (!product) return null;
 
@@ -503,6 +513,60 @@ const _getProductSleeperBoardRaw = unstable_cache(
         if (v > 0) agg.prices.push(v);
         if (cardIsProspect) agg.hasProspectCard = true;
         byPlayer.set(key, agg);
+      }
+    }
+
+    // Prior-Bowman appearances. Card-number prefix (BCP-/CPA-/…) alone
+    // isn't enough to identify a "1st Bowman" — those prefixes mark the
+    // Chrome Prospects line, which includes both first-timers AND
+    // repeat prospects. Eli Willits, for example, shows up on BCP-245
+    // in 2026 Bowman Chrome but he had his 1st Bowman in 2025 Bowman
+    // Draft (BDC-1 + CPA-EW), so tagging him "1st" here misleads a PYP
+    // buyer into thinking the chase card carries the 1st Bowman logo.
+    //
+    // Fix: pull every card from prior Bowman-branded products (any
+    // product with "Bowman" in its name that releases earlier than
+    // this one — releaseDate when both have one, else createdAt as a
+    // fallback for null-date rows), keep the normalized name set, and
+    // subtract from the prospect-flagged players below. Any player
+    // with a prior Bowman appearance loses their "1st Bowman" badge.
+    const priorProducts = await prisma.product.findMany({
+      where: {
+        name: { contains: "Bowman" },
+        id: { not: productId },
+      },
+      select: { id: true, releaseDate: true, createdAt: true },
+    });
+    const priorProductIds = priorProducts
+      .filter((pp) => {
+        // Prefer releaseDate ordering; fall back to createdAt when
+        // either side is missing a release date. Same-timestamp ties
+        // (unlikely) fall to the false side, which just costs one
+        // player their "1st" badge — acceptable.
+        if (pp.releaseDate != null && product.releaseDate != null) {
+          return pp.releaseDate < product.releaseDate;
+        }
+        return pp.createdAt < product.createdAt;
+      })
+      .map((pp) => pp.id);
+
+    // Names seen on any prior Bowman product. Cards are cheap to page
+    // through — one select of playerName only, split on "/" for dual
+    // autos, normalize with the same helper the roster join uses so
+    // the two sides compare apples-to-apples.
+    const priorBowmanNames = new Set<string>();
+    if (priorProductIds.length > 0) {
+      const priorCards = await prisma.card.findMany({
+        where: { productId: { in: priorProductIds } },
+        select: { playerName: true },
+      });
+      for (const c of priorCards) {
+        for (const n of c.playerName
+          .split("/")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)) {
+          priorBowmanNames.add(norm(n));
+        }
       }
     }
 
@@ -741,7 +805,13 @@ const _getProductSleeperBoardRaw = unstable_cache(
         statLine: statSummary?.line ?? null,
         statGroup: statSummary?.group ?? null,
         gamesPlayed: statSummary?.gamesPlayed ?? null,
-        bowmanFirst: agg.hasProspectCard,
+        // Prospect-line in this product AND no prior Bowman appearance
+        // anywhere in our catalog. Both halves matter: the first drops
+        // veterans / insert-only players out; the second drops repeat
+        // prospects (Willits, other draft-year returners) whose "1st
+        // Bowman" was in an earlier Bowman product.
+        bowmanFirst:
+          agg.hasProspectCard && !priorBowmanNames.has(agg.normalizedName),
       };
     });
 
@@ -782,7 +852,11 @@ const _getProductSleeperBoardRaw = unstable_cache(
   // v7: each row now carries `bowmanFirst` — true when the player
   // has any prospect-line card (BCP-, CPA-, etc.) in this product.
   // Powers the 1st Bowman / Non-1st tab split on the sleeper board.
-  ["product-sleeper-board", "v7"],
+  // v8: `bowmanFirst` now also requires no prior Bowman appearance
+  // in our catalog — Willits was tagged "1st" in 2026 Bowman Chrome
+  // even though he debuted in 2025 Bowman Draft. Cross-references
+  // against every earlier Bowman product.
+  ["product-sleeper-board", "v8"],
   { revalidate: 30 * 60, tags: ["products", "milb-roster", "milb-stats"] },
 );
 export async function getProductSleeperBoard(productId: string) {

@@ -24,13 +24,14 @@ export type SleeperBoardRow = {
   statLine: string | null;
   statGroup: "hitting" | "pitching" | null;
   gamesPlayed: number | null;
-  // True when this player has any prospect-line card in the product
-  // (BCP-, CPA-, BP-, BDC-, etc.). Practically "1st Bowman" for
-  // Bowman flagship / Chrome / Draft; false means every card of theirs
-  // in the set sits on a non-prospect line (Base Set veterans, inserts).
-  // Non-Bowman products can still send true when a card carries a
-  // prospect variation tag; the "1st Bowman" tab hides itself when no
-  // rows in the product qualify, so the extra field is a no-op there.
+  // True when this player has a prospect-line card in the product
+  // (BCP-, CPA-, BP-, BDC-, …) AND no earlier Bowman product in our
+  // catalog contains a card of theirs. Both halves matter — the first
+  // drops veterans / insert-only appearances, the second drops repeat
+  // prospects like Eli Willits, whose actual 1st Bowman shipped in
+  // 2025 Bowman Draft before he ever hit 2026 Bowman Chrome.
+  // Non-Bowman products always send false; the tab row hides itself
+  // there so the extra dimension is invisible on Panini flagship etc.
   bowmanFirst: boolean;
 };
 
@@ -478,7 +479,7 @@ export default function SleepersTable({ rows }: { rows: SleeperBoardRow[] }) {
                           {r.bowmanFirst && (
                             <span
                               className="rounded-sm bg-emerald-100 px-1 py-px text-[9px] font-bold uppercase tracking-tight-2 text-emerald-700"
-                              title="1st Bowman — has a prospect-line card (BCP-/CPA-/BP-/…) in this product."
+                              title="1st Bowman — prospect-line card in this product with no prior Bowman appearance in our catalog."
                             >
                               1st
                             </span>
