@@ -108,7 +108,18 @@ export async function fetchMilbStatLines(
   group: StatGroup,
   season: number = new Date().getUTCFullYear(),
 ): Promise<MilbStatLineRecord[]> {
-  const url = `${BASE}/stats?stats=season&group=${group}&season=${season}&sportIds=${SPORT_IDS}&limit=5000`;
+  // playerPool=all overrides the endpoint's default `qualified` filter,
+  // which otherwise clips out anyone below the batting-title / IP-per-
+  // game threshold. Without it a 2026 Bowman Chrome checklist ends up
+  // with ~half its MLB matches showing "no stats" — Konnor Griffin,
+  // Byron Buxton, Nick Kurtz, etc. all appear in the roster but their
+  // stat lines are filtered before the API returns them. `all` gets
+  // every player with a real appearance this season.
+  //
+  // limit is bumped to match — with qualified-only we saw ~1.3k rows
+  // total across both groups; playerPool=all is a full-population
+  // read that comfortably exceeds 5,000 across MLB + five MiLB levels.
+  const url = `${BASE}/stats?stats=season&group=${group}&season=${season}&sportIds=${SPORT_IDS}&playerPool=all&limit=20000`;
   const res = await fetch(url, {
     headers: {
       Accept: "application/json",
